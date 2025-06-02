@@ -1,0 +1,223 @@
+const { Product, User, Category } = require('../models'); // Lấy từ models/index.js
+const { Op } = require('sequelize'); // Để dùng các toán tử của Sequelize
+
+// @desc    Tạo sản phẩm mới
+exports.createProduct = async (req, res) => {
+    try {
+        const { name, description, price, category_id, product_data, status } = req.body;
+        const seller_id = req.user.id; // Lấy từ middleware protect
+
+        // Kiểm tra Category có tồn tại không
+        const category = await Category.findByPk(category_id);
+        if (!category) {
+            return res.status(404).json({ message: 'Danh mục không tồn tại.' });
+        }
+
+        const newProduct = await Product.create({
+            name,
+            description,
+            price,
+            category_id,
+            product_data, // Lưu ý bảo mật và mã hóa nếu cần thiết
+            status: req.user.role === 'admin' ? (status || 'available') : 'pending_approval', // Admin có thể set status, seller thì pending
+            seller_id
+        });
+
+        res.status(201).json({ message: 'Sản phẩm đã được tạo thành công và chờ duyệt (nếu bạn là seller).', product: newProduct });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Lỗi server khi tạo sản phẩm.', error: error.message });
+    }
+};
+
+// @desc    Lấy tất cả sản phẩm (có phân trang, lọc, sắp xếp)
+exports.getAllProducts = async (req, res) => {
+    try {
+        // 1. Phân trang
+        let page = parseInt(req.query.page) || 1;
+        let limit = parseInt(req.query.limit) || 12; // Ví dụ: 12 sản phẩm/trang
+        if (page < 1) page = 1;
+        if (limit < 1) limit = 1;
+        if (limit > 100) limit = 100; // Giới hạn tối đa để bảo vệ server
+        const offset = (page - 1) * limit;
+
+        // 2. Sắp xếp
+        const allowedSortByFields = ['createdAt', 'name', 'price', 'updatedAt']; // Các trường cho phép sắp xếp
+        const sortBy = allowedSortByFields.includes(req.query.sortBy) ? req.query.sortBy : 'createdAt';
+        const sortOrderQuery = (req.query.sortOrder || 'DESC').toUpperCase();
+        const sortOrder = ['ASC', 'DESC'].includes(sortOrderQuery) ? sortOrderQuery : 'DESC';
+        const order = [[sortBy, sortOrder]];
+        // Nếu sortBy là một trường của model liên kết, ví dụ 'category.name':
+        // const order = [[{ model: Category, as: 'category' }, 'name', sortOrder]]; // Ví dụ
+
+        // 3. Lọc
+        const whereClause = {};
+        const { search, categoryId, categorySlug, sellerId, minPrice, maxPrice, status } = req.query;
+
+        // Mặc định, người dùng chỉ xem sản phẩm 'available'
+        whereClause.status = status || 'available';
+        // Admin có thể muốn xem tất cả status, khi đó route của admin sẽ không set mặc định này
+        // hoặc client của admin sẽ gửi query status='' (cần xử lý server-side)
+
+        if (search) {
+            whereClause[Op.or] = [
+                { name: { [Op.like]: `%${search}%` } },
+                { description: { [Op.like]: `%${search}%` } } // Tìm cả trong mô tả
+            ];
+        }
+
+        if (categoryId) {
+            const catIdNum = parseInt(categoryId);
+            if (!isNaN(catIdNum) && catIdNum > 0) {
+                whereClause.category_id = catIdNum;
+            }
+        } else if (categorySlug) {
+            const categoryObj = await Category.findOne({ where: { slug: categorySlug } });
+            if (categoryObj) {
+                whereClause.category_id = categoryObj.id;
+            } else {
+                // Nếu slug không tìm thấy, trả về mảng rỗng để không lỗi
+                return res.json({ totalItems: 0, totalPages: 0, currentPage: 1, limit, products: [] });
+            }
+        }
+
+
+        if (sellerId) {
+            const sellerIdNum = parseInt(sellerId);
+            if (!isNaN(sellerIdNum) && sellerIdNum > 0) {
+                whereClause.seller_id = sellerIdNum;
+            }
+        }
+
+        if (minPrice || maxPrice) {
+            whereClause.price = {};
+            if (minPrice) {
+                const minP = parseFloat(minPrice);
+                if (!isNaN(minP)) whereClause.price[Op.gte] = minP;
+            }
+            if (maxPrice) {
+                const maxP = parseFloat(maxPrice);
+                if (!isNaN(maxP)) whereClause.price[Op.lte] = maxP;
+                 if (whereClause.price[Op.gte] && maxP < whereClause.price[Op.gte]) {
+                    // Đảm bảo maxPrice không nhỏ hơn minPrice nếu cả hai đều có
+                    delete whereClause.price[Op.lte]; // Hoặc báo lỗi
+                }
+            }
+        }
+
+        // 4. Truy vấn CSDL
+        const { count, rows } = await Product.findAndCountAll({
+            where: whereClause,
+            include: [
+                { model: User, as: 'seller', attributes: ['id', 'username', 'full_name', 'avatar_url'] },
+                { model: Category, as: 'category', attributes: ['id', 'name', 'slug'] }
+            ],
+            attributes: { exclude: ['product_data'] }, // Quan trọng: Không lộ product_data ở danh sách công khai
+            limit: limit,
+            offset: offset,
+            order: order,
+            distinct: true, // Cần thiết nếu include tạo ra các bản ghi trùng lặp (ví dụ include nhiều hasMany)
+        });
+
+        // 5. Trả về kết quả
+        res.json({
+            totalItems: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: page,
+            limit: limit,
+            products: rows
+        });
+
+    } catch (error) {
+        console.error('Lỗi lấy danh sách sản phẩm:', error);
+        res.status(500).json({ message: 'Lỗi server khi lấy danh sách sản phẩm.', error: error.message });
+    }
+};
+
+// @desc    Lấy chi tiết một sản phẩm
+exports.getProductById = async (req, res) => {
+    try {
+        const product = await Product.findByPk(req.params.id, {
+            include: [
+                { model: User, as: 'seller', attributes: ['id', 'username', 'full_name'] },
+                { model: Category, as: 'category', attributes: ['id', 'name', 'slug'] }
+            ],
+            attributes: { exclude: ['product_data'] } // KHÔNG trả về product_data công khai
+        });
+
+        if (!product) {
+            return res.status(404).json({ message: 'Sản phẩm không tìm thấy.' });
+        }
+        // Nếu sản phẩm không ở trạng thái 'available' và người dùng không phải admin/owner thì có thể không cho xem
+        if (product.status !== 'available' && (!req.user || (req.user.id !== product.seller_id && req.user.role !== 'admin'))) {
+             return res.status(403).json({ message: 'Bạn không có quyền xem sản phẩm này.' });
+        }
+
+        res.json(product);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Lỗi server khi lấy chi tiết sản phẩm.', error: error.message });
+    }
+};
+
+// @desc    Cập nhật sản phẩm
+exports.updateProduct = async (req, res) => {
+    try {
+        const product = await Product.findByPk(req.params.id);
+        if (!product) {
+            return res.status(404).json({ message: 'Sản phẩm không tìm thấy.' });
+        }
+
+        // Kiểm tra quyền: chỉ chủ sở hữu hoặc admin mới được sửa
+        if (product.seller_id !== req.user.id && req.user.role !== 'admin') {
+            return res.status(403).json({ message: 'Bạn không có quyền cập nhật sản phẩm này.' });
+        }
+
+        const { name, description, price, category_id, product_data, status } = req.body;
+
+        // Admin có thể thay đổi status, seller thì không (hoặc chuyển về pending_approval)
+        let newStatus = product.status;
+        if (req.user.role === 'admin' && status) {
+            newStatus = status;
+        } else if (req.user.role === 'seller' && product.status !== 'pending_approval') {
+            // Khi seller sửa, có thể bạn muốn chuyển lại thành 'pending_approval'
+            // newStatus = 'pending_approval';
+        }
+
+
+        await product.update({
+            name: name || product.name,
+            description: description || product.description,
+            price: price || product.price,
+            category_id: category_id || product.category_id,
+            product_data: product_data || product.product_data,
+            status: newStatus
+        });
+
+        res.json({ message: 'Sản phẩm đã được cập nhật.', product });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Lỗi server khi cập nhật sản phẩm.', error: error.message });
+    }
+};
+
+// @desc    Xóa sản phẩm
+exports.deleteProduct = async (req, res) => {
+    try {
+        const product = await Product.findByPk(req.params.id);
+        if (!product) {
+            return res.status(404).json({ message: 'Sản phẩm không tìm thấy.' });
+        }
+
+        // Kiểm tra quyền: chỉ chủ sở hữu hoặc admin mới được xóa
+        if (product.seller_id !== req.user.id && req.user.role !== 'admin') {
+            return res.status(403).json({ message: 'Bạn không có quyền xóa sản phẩm này.' });
+        }
+
+        await product.destroy();
+        res.json({ message: 'Sản phẩm đã được xóa.' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Lỗi server khi xóa sản phẩm.', error: error.message });
+    }
+};

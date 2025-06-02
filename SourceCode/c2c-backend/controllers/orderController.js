@@ -1,0 +1,585 @@
+const { Order, OrderItem, Product, User, SellerWallet, Transaction, sequelize } = require('../models'); // Lấy từ models/index.js
+const { Op } = require('sequelize');
+const { createNotification } = require('../services/notificationService');
+
+require('dotenv').config();
+
+const COMMISSION_RATE = parseFloat(process.env.COMMISSION_RATE) || 0.05; // 5% phí sàn
+
+// @desc    Tạo đơn hàng mới
+exports.createOrder = async (req, res) => {
+    const { items } = req.body; // items: [{ product_id, quantity (mặc định là 1 cho digital) }]
+    const buyer_id = req.user.id;
+    let transaction; // Biến cho DB transaction
+
+    try {
+        transaction = await sequelize.transaction();
+        let totalAmount = 0;
+        const orderItemsData = [];
+
+        for (const item of items) {
+            const product = await Product.findByPk(item.product_id, { transaction });
+            if (!product) {
+                await transaction.rollback();
+                return res.status(404).json({ message: `Sản phẩm với ID ${item.product_id} không tìm thấy.` });
+            }
+            if (product.status !== 'available') {
+                await transaction.rollback();
+                return res.status(400).json({ message: `Sản phẩm "${product.name}" không còn hoặc đang chờ duyệt.` });
+            }
+            if (product.seller_id === buyer_id) {
+                await transaction.rollback();
+                return res.status(400).json({ message: `Bạn không thể tự mua sản phẩm của chính mình.` });
+            }
+
+            totalAmount += parseFloat(product.price); // Giả sử quantity = 1
+            orderItemsData.push({
+                product_id: product.id,
+                seller_id: product.seller_id,
+                price: product.price,
+                // commission_fee sẽ tính sau khi thanh toán
+            });
+
+            // Đánh dấu sản phẩm là đã bán (hoặc "reserved" nếu có cơ chế đó)
+            product.status = 'sold'; // Hoặc một trạng thái tạm thời khác
+            await product.save({ transaction });
+        }
+
+        if (orderItemsData.length === 0) {
+            await transaction.rollback();
+            return res.status(400).json({ message: "Đơn hàng không có sản phẩm nào." });
+        }
+
+        const newOrder = await Order.create({
+            buyer_id,
+            total_amount: totalAmount,
+            status: 'pending' // Chờ thanh toán
+        }, { transaction });
+
+        for (const itemData of orderItemsData) {
+            await OrderItem.create({
+                ...itemData,
+                order_id: newOrder.id,
+            }, { transaction });
+        }
+
+        await transaction.commit();
+        res.status(201).json({ message: 'Đơn hàng đã được tạo, vui lòng tiến hành thanh toán.', order: newOrder });
+
+        await createNotification({
+            recipientId: newOrder.buyer_id, // Gửi cho người mua
+            type: 'new_order_buyer',
+            title: 'Đơn hàng mới đã được tạo',
+            message: `Đơn hàng #${newOrder.id} của bạn đã được tạo thành công và đang chờ thanh toán.`,
+            link: `/orders/${newOrder.id}`,
+            relatedEntityType: 'order',
+            relatedEntityId: newOrder.id
+        });
+        for (const itemData of orderItemsData) { // orderItemsData từ logic tạo đơn
+        await createNotification({
+            recipientId: itemData.seller_id,
+            type: 'new_order_seller',
+            title: 'Bạn có đơn hàng mới!',
+            message: `Khách hàng vừa đặt sản phẩm (ID: ${itemData.product_id}) trong đơn hàng #${newOrder.id}.`,
+            link: `/seller/orders/${newOrder.id}`, // Hoặc link chi tiết item cho seller
+            relatedEntityType: 'order',
+            relatedEntityId: newOrder.id
+        });
+}
+
+    } catch (error) {
+        if (transaction) await transaction.rollback();
+        console.error('Lỗi tạo đơn hàng:', error);
+        res.status(500).json({ message: 'Lỗi server khi tạo đơn hàng.', error: error.message });
+    }
+};
+
+// @desc    (Mô phỏng) Đánh dấu đơn hàng đã thanh toán
+exports.markOrderAsPaid = async (req, res) => {
+    const { orderId } = req.params;
+    const userId = req.user.id; // Người mua hoặc admin (nếu logic cho phép)
+    let transaction;
+
+    try {
+        transaction = await sequelize.transaction();
+        const order = await Order.findByPk(orderId, {
+            include: [{ model: OrderItem, as: 'items' }],
+            transaction
+        });
+
+        if (!order) {
+            await transaction.rollback();
+            return res.status(404).json({ message: 'Đơn hàng không tìm thấy.' });
+        }
+
+        // Chỉ người mua hoặc admin mới có quyền này (cần check kỹ hơn)
+        if (order.buyer_id !== userId && req.user.role !== 'admin') {
+            await transaction.rollback();
+            return res.status(403).json({ message: 'Không có quyền thực hiện hành động này.' });
+        }
+
+        if (order.status !== 'pending') {
+            await transaction.rollback();
+            return res.status(400).json({ message: `Đơn hàng không ở trạng thái chờ thanh toán (hiện tại: ${order.status}).` });
+        }
+
+        order.status = 'paid'; // Hoặc 'processing' nếu thanh toán xong là bắt đầu xử lý
+        await order.save({ transaction });
+
+        // Tạo giao dịch thanh toán cho người mua
+        await Transaction.create({
+            user_id: order.buyer_id,
+            order_item_id: null, // Giao dịch cho toàn bộ đơn hàng
+            type: 'payment',
+            amount: -parseFloat(order.total_amount), // Số tiền người mua trả (âm)
+            status: 'completed'
+        }, { transaction });
+
+        // (Tùy chọn) Thông báo cho các người bán có sản phẩm trong đơn hàng này
+        // ... logic gửi thông báo ...
+
+        await transaction.commit();
+        res.json({ message: 'Đơn hàng đã được đánh dấu là đã thanh toán.', order });
+
+    } catch (error) {
+        if (transaction) await transaction.rollback();
+        console.error('Lỗi đánh dấu thanh toán:', error);
+        res.status(500).json({ message: 'Lỗi server.', error: error.message });
+    }
+};
+
+
+// @desc    Người bán đánh dấu item đã giao
+exports.markItemAsDelivered = async (req, res) => {
+    const { itemId } = req.params;
+    const sellerId = req.user.id;
+
+    try {
+        const orderItem = await OrderItem.findByPk(itemId, {
+            include: [{ model: Order, as: 'order' }]
+        });
+
+        if (!orderItem) {
+            return res.status(404).json({ message: 'Mục đơn hàng không tìm thấy.' });
+        }
+        if (orderItem.seller_id !== sellerId) {
+            return res.status(403).json({ message: 'Bạn không phải người bán của mục này.' });
+        }
+        if (orderItem.order.status !== 'paid' && orderItem.order.status !== 'processing') {
+             return res.status(400).json({ message: `Không thể giao hàng cho đơn chưa thanh toán/xử lý (trạng thái đơn: ${orderItem.order.status}).` });
+        }
+        if (orderItem.status === 'delivered' || orderItem.status === 'confirmed') {
+            return res.status(400).json({ message: 'Mục này đã được giao hoặc xác nhận.' });
+        }
+
+
+        orderItem.status = 'delivered';
+        await orderItem.save();
+
+        // (Tùy chọn) Cập nhật trạng thái Order tổng nếu cần (ví dụ: 'processing')
+        const order = await Order.findByPk(orderItem.order_id);
+        if (order.status === 'paid') {
+            order.status = 'processing'; // Hoặc logic phức tạp hơn nếu có nhiều items
+            await order.save();
+        }
+
+        res.json({ message: 'Mục đơn hàng đã được đánh dấu là đã giao.', orderItem });
+    } catch (error) {
+        console.error('Lỗi đánh dấu đã giao:', error);
+        res.status(500).json({ message: 'Lỗi server.', error: error.message });
+    }
+};
+
+// @desc    Người mua xác nhận đã nhận hàng -> Kích hoạt Escrow Release
+exports.confirmItemReceipt = async (req, res) => {
+    const { itemId } = req.params;
+    const buyerId = req.user.id;
+    let dbTransaction;
+
+    try {
+        dbTransaction = await sequelize.transaction();
+        const orderItem = await OrderItem.findByPk(itemId, {
+            include: [
+                { model: Order, as: 'order', where: { buyer_id: buyerId } }, // Đảm bảo người mua đúng
+                { model: Product, as: 'product' } // Để lấy product_data
+            ],
+            transaction: dbTransaction
+        });
+
+        if (!orderItem) {
+            await dbTransaction.rollback();
+            return res.status(404).json({ message: 'Mục đơn hàng không tìm thấy hoặc bạn không phải người mua.' });
+        }
+        if (orderItem.status !== 'delivered') {
+            await dbTransaction.rollback();
+            return res.status(400).json({ message: `Không thể xác nhận mục chưa được giao (trạng thái: ${orderItem.status}).` });
+        }
+
+        orderItem.status = 'confirmed';
+        await orderItem.save({ transaction: dbTransaction });
+
+        // Tính toán tiền cho người bán và phí sàn
+        const itemPrice = parseFloat(orderItem.price);
+        const commission = itemPrice * COMMISSION_RATE;
+        const sellerEarnings = itemPrice - commission;
+        orderItem.commission_fee = commission; // Lưu lại phí đã thu
+        await orderItem.save({ transaction: dbTransaction });
+
+
+        // Cộng tiền vào ví người bán
+        const sellerWallet = await SellerWallet.findOne({ where: { seller_id: orderItem.seller_id }, transaction: dbTransaction });
+        if (sellerWallet) {
+            sellerWallet.balance = parseFloat(sellerWallet.balance) + sellerEarnings;
+            await sellerWallet.save({ transaction: dbTransaction });
+        } else {
+            // Trường hợp hiếm: seller chưa có ví -> tạo mới hoặc báo lỗi
+            await SellerWallet.create({ seller_id: orderItem.seller_id, balance: sellerEarnings }, { transaction: dbTransaction });
+        }
+
+        // Ghi nhận giao dịch cho người bán
+        await Transaction.create({
+            user_id: orderItem.seller_id,
+            order_item_id: orderItem.id,
+            type: 'payout', // Hoặc 'sale_credit' tùy theo cách bạn định nghĩa
+            amount: sellerEarnings,
+            status: 'completed'
+        }, { transaction: dbTransaction });
+
+        // Ghi nhận giao dịch phí sàn (cho admin/platform)
+        await Transaction.create({
+            user_id: 1, // ID của Admin hoặc một tài khoản đại diện cho platform
+            order_item_id: orderItem.id,
+            type: 'commission',
+            amount: commission,
+            status: 'completed'
+        }, { transaction: dbTransaction });
+
+
+        // Kiểm tra xem tất cả items trong Order đã confirmed chưa để cập nhật Order status
+        const order = await Order.findByPk(orderItem.order_id, {
+            include: [{ model: OrderItem, as: 'items' }],
+            transaction: dbTransaction
+        });
+
+        const allItemsConfirmed = order.items.every(item => item.status === 'confirmed');
+        if (allItemsConfirmed) {
+            order.status = 'completed';
+            await order.save({ transaction: dbTransaction });
+        } else if (order.status !== 'partially_completed' && order.items.some(item => item.status === 'confirmed')) {
+            order.status = 'partially_completed';
+            await order.save({ transaction: dbTransaction });
+        }
+
+
+        await dbTransaction.commit();
+        res.json({
+            message: 'Xác nhận nhận hàng thành công. Tiền đã được chuyển cho người bán.',
+            orderItem,
+            // product_data sẽ được trả về qua getOrderById nếu đã confirmed
+        });
+
+        await createNotification({
+            recipientId: orderItem.seller_id,
+            type: 'item_confirmed_seller',
+            title: 'Mặt hàng đã được xác nhận',
+            message: `Người mua đã xác nhận nhận hàng cho mục #${orderItem.id} (sản phẩm: ${orderItem.product.name}). Tiền đã được cộng vào ví của bạn.`,
+            link: `/seller/orders/${orderItem.order_id}`, // Link đến đơn hàng
+            relatedEntityType: 'order_item',
+            relatedEntityId: orderItem.id
+        });
+
+    } catch (error) {
+        if (dbTransaction) await dbTransaction.rollback();
+        console.error('Lỗi xác nhận nhận hàng:', error);
+        res.status(500).json({ message: 'Lỗi server.', error: error.message });
+    }
+};
+
+// @desc    Lấy đơn hàng của tôi (Người mua)
+exports.getMyOrders = async (req, res) => {
+    try {
+        const orders = await Order.findAll({
+            where: { buyer_id: req.user.id },
+            include: [
+                {
+                    model: OrderItem,
+                    as: 'items',
+                    include: [
+                        { model: Product, as: 'product', attributes: ['id', 'name'] }, // Không lấy product_data
+                        { model: User, as: 'seller', attributes: ['id', 'username']}
+                    ]
+                }
+            ],
+            order: [['createdAt', 'DESC']]
+        });
+        res.json(orders);
+    } catch (error) {
+        console.error('Lỗi lấy đơn hàng của tôi:', error);
+        res.status(500).json({ message: 'Lỗi server.', error: error.message });
+    }
+};
+
+// @desc    Lấy đơn hàng liên quan đến người bán
+exports.getSellerOrders = async (req, res) => {
+    try {
+        // Lấy tất cả OrderItem của seller, sau đó group theo Order
+        const sellerOrderItems = await OrderItem.findAll({
+            where: { seller_id: req.user.id },
+            include: [
+                {
+                    model: Order,
+                    as: 'order',
+                    include: [{ model: User, as: 'buyer', attributes: ['id', 'username', 'full_name'] }]
+                },
+                { model: Product, as: 'product', attributes: ['id', 'name'] }
+            ],
+            order: [['createdAt', 'DESC']] // Sắp xếp theo OrderItem, hoặc order của Order tổng
+        });
+
+        // Xử lý để trả về danh sách Orders thay vì OrderItems (nếu muốn)
+        // Cách đơn giản là trả về sellerOrderItems, frontend tự nhóm
+        // Hoặc xử lý ở backend:
+        const ordersMap = new Map();
+        sellerOrderItems.forEach(item => {
+            if (!ordersMap.has(item.order.id)) {
+                ordersMap.set(item.order.id, {
+                    ...item.order.toJSON(), // Lấy thông tin order
+                    items: [] // Tạo mảng items cho order đó
+                });
+            }
+            ordersMap.get(item.order.id).items.push({
+                id: item.id,
+                product_name: item.product.name,
+                price: item.price,
+                status: item.status,
+                commission_fee: item.commission_fee,
+                createdAt: item.createdAt
+            });
+        });
+        const resultOrders = Array.from(ordersMap.values());
+
+
+        res.json(resultOrders);
+    } catch (error) {
+        console.error('Lỗi lấy đơn hàng của người bán:', error);
+        res.status(500).json({ message: 'Lỗi server.', error: error.message });
+    }
+};
+
+// @desc    Lấy chi tiết đơn hàng (Buyer, Related Seller, Admin)
+exports.getOrderById = async (req, res) => {
+    try {
+        const order = await Order.findByPk(req.params.orderId, {
+            include: [
+                { model: User, as: 'buyer', attributes: ['id', 'username', 'full_name'] },
+                {
+                    model: OrderItem,
+                    as: 'items',
+                    include: [
+                        { model: Product, as: 'product', attributes: ['id', 'name', 'description', /* KHÔNG LẤY product_data ở đây */] },
+                        { model: User, as: 'seller', attributes: ['id', 'username']}
+                    ]
+                }
+            ]
+        });
+
+        if (!order) {
+            return res.status(404).json({ message: 'Đơn hàng không tìm thấy.' });
+        }
+
+        // Kiểm tra quyền truy cập
+        const isBuyer = order.buyer_id === req.user.id;
+        const isRelatedSeller = order.items.some(item => item.seller_id === req.user.id);
+        const isAdmin = req.user.role === 'admin';
+
+        if (!isBuyer && !isRelatedSeller && !isAdmin) {
+            return res.status(403).json({ message: 'Bạn không có quyền xem đơn hàng này.' });
+        }
+
+        // **QUAN TRỌNG: Xử lý việc trả về `product_data` cho người mua đã xác nhận**
+        // Nếu người dùng là người mua, duyệt qua các item, nếu item đã 'confirmed' (hoặc 'delivered')
+        // thì mới lấy `product_data` của sản phẩm tương ứng và gắn vào item đó.
+        if (isBuyer) {
+            for (let i = 0; i < order.items.length; i++) {
+                const item = order.items[i];
+                if (item.status === 'confirmed' || item.status === 'delivered') { // Hoặc chỉ 'confirmed'
+                    const productWithData = await Product.findByPk(item.product_id, { attributes: ['product_data'] });
+                    if (productWithData) {
+                        // Gán vào một thuộc tính mới để không ghi đè product object đã có
+                        order.items[i].setDataValue('purchased_product_data', productWithData.product_data);
+                    }
+                }
+            }
+        }
+
+
+        res.json(order);
+    } catch (error) {
+        console.error('Lỗi lấy chi tiết đơn hàng:', error);
+        res.status(500).json({ message: 'Lỗi server.', error: error.message });
+    }
+};
+
+// @desc    Hủy đơn hàng
+exports.cancelOrder = async (req, res) => {
+    const { orderId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    let dbTransaction;
+
+    try {
+        dbTransaction = await sequelize.transaction();
+        const order = await Order.findByPk(orderId, {
+            include: [{ model: OrderItem, as: 'items', include: [{model: Product, as: 'product'}]}],
+            transaction: dbTransaction
+        });
+
+        if (!order) {
+            await dbTransaction.rollback();
+            return res.status(404).json({ message: 'Đơn hàng không tìm thấy.' });
+        }
+
+        // Kiểm tra quyền hủy
+        const isBuyer = order.buyer_id === userId;
+        if (!isBuyer && userRole !== 'admin') {
+            await dbTransaction.rollback();
+            return res.status(403).json({ message: 'Bạn không có quyền hủy đơn hàng này.' });
+        }
+
+        // Logic kiểm tra xem đơn hàng có thể hủy không (ví dụ: chỉ hủy khi 'pending' hoặc 'paid')
+        if (!['pending', 'paid'].includes(order.status) && userRole !== 'admin') { // Admin có thể có quyền hủy rộng hơn
+            await dbTransaction.rollback();
+            return res.status(400).json({ message: `Không thể hủy đơn hàng ở trạng thái "${order.status}".` });
+        }
+
+        const oldStatus = order.status;
+        order.status = 'cancelled';
+        await order.save({ transaction: dbTransaction });
+
+        // Hoàn lại trạng thái sản phẩm
+        for (const item of order.items) {
+            if (item.product && item.product.status === 'sold') { // Chỉ hoàn lại nếu trạng thái là 'sold' do đơn này
+                 const productToUpdate = await Product.findByPk(item.product_id, {transaction: dbTransaction});
+                 if(productToUpdate) {
+                    productToUpdate.status = 'available';
+                    await productToUpdate.save({ transaction: dbTransaction });
+                 }
+            }
+            item.status = 'cancelled'; // Cập nhật trạng thái item
+            await item.save({ transaction: dbTransaction });
+        }
+
+        // Logic hoàn tiền nếu đơn hàng đã 'paid'
+        if (oldStatus === 'paid') {
+            // Ghi nhận giao dịch hoàn tiền cho người mua
+            await Transaction.create({
+                user_id: order.buyer_id,
+                // order_item_id: null, // Giao dịch cho toàn bộ đơn hàng
+                type: 'refund',
+                amount: parseFloat(order.total_amount), // Số tiền hoàn lại (dương)
+                status: 'completed',
+                notes: `Refund for cancelled order ${order.id}`
+            }, { transaction: dbTransaction });
+        }
+
+
+        await dbTransaction.commit();
+        res.json({ message: 'Đơn hàng đã được hủy.', order });
+
+    } catch (error) {
+        if (dbTransaction) await dbTransaction.rollback();
+        console.error('Lỗi hủy đơn hàng:', error);
+        res.status(500).json({ message: 'Lỗi server.', error: error.message });
+    }
+};
+
+
+// ==== ADMIN FUNCTIONS ====
+// @desc    Admin: Lấy tất cả đơn hàng
+exports.getAllOrdersAdmin = async (req, res) => {
+    try {
+        const { page = 1, limit = 10, status, sortBy = 'createdAt', order = 'DESC' } = req.query;
+        const offset = (page - 1) * limit;
+        let whereClause = {};
+        if (status) whereClause.status = status;
+
+        const orders = await Order.findAndCountAll({
+            where: whereClause,
+            include: [
+                { model: User, as: 'buyer', attributes: ['id', 'username'] },
+                { model: OrderItem, as: 'items', attributes: ['id', 'product_id', 'price', 'status'] }
+            ],
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            order: [[sortBy, order.toUpperCase()]]
+        });
+        res.json({
+            totalItems: orders.count,
+            totalPages: Math.ceil(orders.count / limit),
+            currentPage: parseInt(page),
+            orders: orders.rows
+        });
+    } catch (error) {
+        res.status(500).json({ message: "Lỗi server", error: error.message });
+    }
+};
+
+// @desc    Admin: Cập nhật trạng thái đơn hàng
+exports.updateOrderStatusAdmin = async (req, res) => {
+    const { orderId } = req.params;
+    const { status } = req.body; // Trạng thái mới
+    // Cần validate status là một trong các ENUM hợp lệ
+    const validStatuses = Order.getAttributes().status.values;
+    if (!validStatuses.includes(status)) {
+        return res.status(400).json({ message: `Trạng thái "${status}" không hợp lệ.` });
+    }
+
+    let dbTransaction;
+    try {
+        dbTransaction = await sequelize.transaction();
+        const order = await Order.findByPk(orderId, {
+            include: [{model: OrderItem, as: 'items', include: [{model: Product, as: 'product'}]}],
+            transaction: dbTransaction
+        });
+        if (!order) {
+            await dbTransaction.rollback();
+            return res.status(404).json({ message: "Đơn hàng không tìm thấy" });
+        }
+
+        const oldStatus = order.status;
+        order.status = status;
+        await order.save({ transaction: dbTransaction });
+
+        // Nếu admin chuyển sang 'cancelled' hoặc 'refunded' và trước đó là 'paid'
+        if ((status === 'cancelled' || status === 'refunded') && oldStatus === 'paid') {
+            // Hoàn lại trạng thái sản phẩm
+            for (const item of order.items) {
+                if(item.product && item.product.status === 'sold'){
+                    const productToUpdate = await Product.findByPk(item.product_id, {transaction: dbTransaction});
+                    if(productToUpdate) {
+                        productToUpdate.status = 'available';
+                        await productToUpdate.save({ transaction: dbTransaction });
+                    }
+                }
+                item.status = 'cancelled'; // Hoặc 'refunded'
+                await item.save({transaction: dbTransaction});
+            }
+            // Ghi nhận giao dịch hoàn tiền
+            await Transaction.create({
+                user_id: order.buyer_id,
+                type: 'refund',
+                amount: parseFloat(order.total_amount),
+                status: 'completed',
+                notes: `Admin action: Order ${order.id} status changed to ${status}.`
+            }, { transaction: dbTransaction });
+        }
+        // Thêm logic khác nếu cần khi admin thay đổi status (vd: thông báo)
+
+
+        await dbTransaction.commit();
+        res.json({ message: `Trạng thái đơn hàng đã được cập nhật thành ${status}.`, order });
+    } catch (error) {
+        if (dbTransaction) await dbTransaction.rollback();
+        res.status(500).json({ message: "Lỗi server", error: error.message });
+    }
+};
