@@ -8,7 +8,7 @@ const OrderItem = require('./OrderItem');
 const Review = require('./Review');
 const Dispute = require('./Dispute');
 const Message = require('./Message');
-const SellerWallet = require('./SellerWallet');
+const Wallet = require('./Wallet');
 const PayoutRequest = require('./PayoutRequest');
 const Transaction = require('./Transaction');
 const Notification = require('./Notification');
@@ -28,7 +28,7 @@ db.OrderItem = OrderItem;
 db.Review = Review;
 db.Dispute = Dispute;
 db.Message = Message;
-db.SellerWallet = SellerWallet;
+db.Wallet = Wallet;
 db.PayoutRequest = PayoutRequest;
 db.Transaction = Transaction;
 db.Notification = Notification;
@@ -46,7 +46,7 @@ User.hasMany(db.Dispute, { foreignKey: 'defendant_id', as: 'disputesAgainst', on
 User.hasMany(db.Dispute, { foreignKey: 'admin_id', as: 'disputesResolved', onDelete: 'SET NULL' });
 User.hasMany(db.Message, { foreignKey: 'sender_id', as: 'sentMessages', onDelete: 'CASCADE' });
 User.hasMany(db.Message, { foreignKey: 'receiver_id', as: 'receivedMessages', onDelete: 'CASCADE' });
-User.hasOne(db.SellerWallet, { foreignKey: 'seller_id', as: 'wallet', onDelete: 'CASCADE' });
+User.hasOne(Wallet, { foreignKey: 'user_id', as: 'wallet', onDelete: 'CASCADE' });
 User.hasMany(db.PayoutRequest, { foreignKey: 'seller_id', as: 'payoutRequests', onDelete: 'CASCADE' }); // << Chỉ một định nghĩa này cho payoutRequests của User (seller)
 User.hasMany(db.Transaction, { foreignKey: 'user_id', as: 'transactions', onDelete: 'SET NULL' });
 User.hasMany(db.Notification, { foreignKey: 'user_id', as: 'notifications', onDelete: 'CASCADE' });
@@ -96,7 +96,7 @@ Message.belongsTo(db.User, { foreignKey: 'sender_id', as: 'sender' });
 Message.belongsTo(db.User, { foreignKey: 'receiver_id', as: 'receiver' });
 
 // SellerWallet associations
-SellerWallet.belongsTo(db.User, { foreignKey: 'seller_id', as: 'seller' });
+Wallet.belongsTo(User, { foreignKey: 'user_id', as: 'user' }); // Đổi as: 'seller' thành 'user' cho tổng quát
 
 // PayoutRequest associations
 PayoutRequest.belongsTo(db.User, { foreignKey: 'seller_id', as: 'seller' });

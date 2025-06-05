@@ -33,16 +33,9 @@ const Transaction = sequelize.define('Transaction', {
     },
     type: { // Loại giao dịch
         type: DataTypes.ENUM(
-            'payment',              // Thanh toán đơn hàng từ người mua
-            'sale_credit',          // Ghi có cho người bán sau khi bán hàng (sau trừ phí)
-            'commission',           // Phí sàn thu được
-            'payout_request_debit', // Trừ tiền từ ví seller khi tạo yêu cầu rút tiền
-            'payout_completed',     // Admin xác nhận đã chi tiền payout (tiền thực sự rời hệ thống)
-            'payout_rejection_credit',// Hoàn tiền vào ví seller nếu yêu cầu rút tiền bị từ chối/thất bại
-            'refund_debit_seller',  // Trừ tiền từ ví seller để hoàn cho buyer (do dispute)
-            'refund_credit_buyer',  // Ghi có hoàn tiền cho buyer (vào ví buyer nếu có, hoặc ghi nhận)
-            'deposit',              // Người dùng nạp tiền vào ví (nếu có chức năng ví cho buyer)
-            'manual_adjustment'     // Điều chỉnh số dư thủ công bởi admin (cần ghi rõ lý do trong notes)
+          'payment', 'sale_credit', 'commission', 'payout_request_debit',
+        'payout_completed', 'payout_rejection_credit', 'refund_debit_seller',
+        'refund_credit_buyer', 'deposit', 'manual_adjustment'
         ),
         allowNull: false,
     },

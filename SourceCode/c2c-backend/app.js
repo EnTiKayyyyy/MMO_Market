@@ -19,6 +19,7 @@ const walletPayoutRoutes = require('./routes/walletPayoutRoutes');
 const adminUserRoutes = require('./routes/adminUserRoutes');
 const adminProductRoutes = require('./routes/adminProductRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const walletRoutes = require('./routes/walletRoutes');
 
 const app = express();
 
@@ -42,6 +43,7 @@ app.use('/api/wallet-payouts', walletPayoutRoutes);
 app.use('/api/admin/users', adminUserRoutes);
 app.use('/api/admin/products', adminProductRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/wallet', walletRoutes);
 
 // Error Handling Middleware (đơn giản)
 app.use((err, req, res, next) => {
