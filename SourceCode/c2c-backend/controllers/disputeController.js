@@ -213,9 +213,17 @@ exports.getAllDisputesAdmin = async (req, res) => {
         const disputes = await Dispute.findAndCountAll({
             where: whereClause,
             include: [
-                { model: OrderItem, as: 'orderItem', include: [{model: Product, as: 'product', attributes:['name']}] },
+                { 
+                    model: OrderItem, 
+                    as: 'orderItem', 
+                    include: [{
+                        model: Product, 
+                        as: 'product', 
+                        attributes:['id', 'name']
+                    }] 
+                },
                 { model: User, as: 'complainant', attributes: ['id', 'username'] },
-                { model: User, as: 'defendant', attributes: ['id', 'username'] },
+                { model: User, as: 'defendant', attributes: ['id', 'username'] }, // Include này gây ra lỗi
                 { model: User, as: 'resolvedByAdmin', attributes: ['id', 'username'] }
             ],
             order: [[sortBy, order.toUpperCase()]],

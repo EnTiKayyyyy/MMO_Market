@@ -8,6 +8,7 @@ import ProductCard from '../../components/product/ProductCard';
 import { useCartStore } from '../../stores/cartStore';
 import { useAuthStore } from '../../stores/authStore';
 
+const API_URL = 'http://localhost:3000';
 const ProductDetail = () => {
   const { id } = useParams<{ id: string }>();
   const [product, setProduct] = useState<Product | null>(null);
@@ -30,14 +31,15 @@ const ProductDetail = () => {
         const productData = await getProductById(id);
         if (productData) {
           setProduct(productData);
-          setSelectedImage(productData.thumbnail);
-          
-          // Lấy sản phẩm tương tự
-          const similar = await getSimilarProducts(productData.id, productData.category.id);
-          setSimilarProducts(similar);
+          // SỬA LỖI: Lấy đường dẫn từ product.thumbnail_url
+          // và tạo URL đầy đủ để hiển thị
+          const mainImageUrl = productData.thumbnail_url 
+            ? `${API_URL}${productData.thumbnail_url}` 
+            : 'https://via.placeholder.com/600x400?text=No+Image';
+          setSelectedImage(mainImageUrl);
         }
       } catch (error) {
-        console.error('Error fetching product:', error);
+        console.error('Lỗi khi tải sản phẩm:', error);
       } finally {
         setIsLoading(false);
       }

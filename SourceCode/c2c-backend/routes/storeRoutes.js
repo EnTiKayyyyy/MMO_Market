@@ -3,7 +3,7 @@ const router = express.Router();
 const storeController = require('../controllers/storeController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
 const { validateStore } = require('../middlewares/validationMiddleware'); // Sẽ tạo/cập nhật
-const upload = require('../middlewares/uploadMiddleware'); // Middleware xử lý upload file
+const { uploadProductImage } = require('../middlewares/uploadMiddleware'); // Middleware xử lý upload file
 
 // @route   POST /api/stores
 // @desc    Tạo gian hàng mới (chỉ seller)
@@ -12,7 +12,7 @@ router.post(
     '/',
     protect,
     authorize('seller'),
-    upload.single('storeBanner'), // 'storeBanner' là tên field cho file ảnh bìa
+    uploadProductImage.single('storeBanner'), // 'storeBanner' là tên field cho file ảnh bìa
     validateStore,
     storeController.createStore
 );
@@ -29,7 +29,7 @@ router.put(
     '/my',
     protect,
     authorize('seller'),
-    upload.single('storeBanner'),
+    uploadProductImage.single('storeBanner'),
     validateStore, // Có thể cần validation riêng cho update
     storeController.updateMyStore
 );

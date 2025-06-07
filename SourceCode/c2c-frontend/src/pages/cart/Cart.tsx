@@ -1,145 +1,128 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Trash2, ShoppingBag, Plus, Minus } from 'lucide-react';
-import { formatCurrency } from '../../utils/format';
+import { Link, useNavigate } from 'react-router-dom';
 import { useCartStore } from '../../stores/cartStore';
+import { formatCurrency } from '../../utils/format';
+import { Trash2, ShoppingBag, ArrowLeft } from 'lucide-react';
+
+// URL của backend để ghép nối với đường dẫn ảnh
+const API_URL = 'http://localhost:3000';
 
 const Cart = () => {
-  const { items, removeItem, updateQuantity, getTotal } = useCartStore();
+  const navigate = useNavigate();
+  const { items, getTotal, removeItem, updateQuantity, clearCart } = useCartStore();
 
   const handleQuantityChange = (productId: string, quantity: number) => {
-    if (quantity < 1) return;
-    updateQuantity(productId, quantity);
+    if (quantity >= 1) {
+      updateQuantity(productId, quantity);
+    }
   };
 
-  const handleRemoveItem = (productId: string) => {
-    if (window.confirm('Bạn có chắc chắn muốn xóa sản phẩm này khỏi giỏ hàng?')) {
-      removeItem(productId);
-    }
+  const handleCheckout = () => {
+    navigate('/thanh-toan');
   };
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Giỏ hàng của bạn</h1>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold">Giỏ hàng của bạn</h1>
+        <p className="text-gray-600 mt-1">Kiểm tra lại các sản phẩm trước khi thanh toán.</p>
+      </div>
 
-      {items.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg shadow-custom">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <ShoppingBag size={24} className="text-gray-500" />
-          </div>
-          <h2 className="text-xl font-semibold mb-2">Giỏ hàng trống</h2>
-          <p className="text-gray-600 mb-6">
-            Bạn chưa có sản phẩm nào trong giỏ hàng
-          </p>
-          <Link to="/san-pham" className="btn btn-primary">
-            Tiếp tục mua sắm
-          </Link>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-custom overflow-hidden">
-              <div className="p-6">
-                <div className="space-y-4">
-                  {items.map((item) => (
-                    <div key={item.product.id} className="flex items-center py-4 border-b last:border-0">
-                      <div className="w-20 h-20 flex-shrink-0">
-                        <img
-                          src={item.product.thumbnail}
-                          alt={item.product.name}
-                          className="w-full h-full object-cover rounded-lg"
-                        />
-                      </div>
-                      
-                      <div className="ml-4 flex-1">
-                        <h3 className="font-medium text-gray-900">{item.product.name}</h3>
-                        <div className="mt-1">
-                          {item.product.discount > 0 ? (
-                            <div className="flex items-center">
-                              <span className="text-error-600 font-medium">
-                                {formatCurrency(item.product.price - (item.product.price * item.product.discount / 100))}
-                              </span>
-                              <span className="ml-2 text-sm text-gray-500 line-through">
-                                {formatCurrency(item.product.price)}
-                              </span>
+      {items.length > 0 ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Cart Items */}
+          <div className="lg:col-span-2 bg-white rounded-lg shadow-custom p-6">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sản phẩm</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Giá</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Số lượng</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tổng</th>
+                    <th scope="col" className="relative px-6 py-3"><span className="sr-only">Xóa</span></th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {items.map(item => {
+                    // SỬA ĐỔI: Xây dựng URL hình ảnh đầy đủ
+                    const imageUrl = item.product.thumbnail_url
+                      ? `${API_URL}${item.product.thumbnail_url}`
+                      : 'https://via.placeholder.com/150?text=No+Image';
+
+                    return (
+                      <tr key={item.product.id}>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center">
+                            {/* THÊM MỚI: Thẻ img để hiển thị ảnh */}
+                            <img
+                              src={imageUrl}
+                              alt={item.product.name}
+                              className="w-16 h-16 rounded-md object-cover mr-4 border"
+                              onError={(e) => { e.currentTarget.src = 'https://via.placeholder.com/150?text=Error'; }}
+                            />
+                            <div className="flex-grow">
+                              <p className="font-medium text-gray-900 line-clamp-2">{item.product.name}</p>
+                              <p className="text-sm text-gray-500">Người bán: {item.product.seller.name}</p>
                             </div>
-                          ) : (
-                            <span className="font-medium">
-                              {formatCurrency(item.product.price)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-4">
-                        <div className="flex items-center border rounded-lg">
-                          <button
-                            onClick={() => handleQuantityChange(item.product.id, item.quantity - 1)}
-                            className="p-2 hover:bg-gray-100"
-                            disabled={item.quantity <= 1}
-                          >
-                            <Minus size={16} />
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">{formatCurrency(item.product.price)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <input
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={(e) => handleQuantityChange(item.product.id, parseInt(e.target.value))}
+                            className="w-20 input text-center"
+                          />
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap font-medium">{formatCurrency(item.product.price * item.quantity)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <button onClick={() => removeItem(item.product.id)} className="text-error-600 hover:text-error-800">
+                            <Trash2 size={20} />
                           </button>
-                          <span className="px-4 py-2 text-center min-w-[40px]">
-                            {item.quantity}
-                          </span>
-                          <button
-                            onClick={() => handleQuantityChange(item.product.id, item.quantity + 1)}
-                            className="p-2 hover:bg-gray-100"
-                            disabled={item.quantity >= item.product.inStock}
-                          >
-                            <Plus size={16} />
-                          </button>
-                        </div>
-                        
-                        <button
-                          onClick={() => handleRemoveItem(item.product.id)}
-                          className="text-gray-400 hover:text-error-600"
-                        >
-                          <Trash2 size={20} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-6 flex justify-end">
+                <button onClick={clearCart} className="btn btn-outline text-error-600 border-error-300 hover:bg-error-50">Xóa hết giỏ hàng</button>
             </div>
           </div>
           
-          <div className="bg-white rounded-lg shadow-custom p-6 h-fit">
-            <h2 className="text-lg font-semibold mb-4">Tổng giỏ hàng</h2>
-            
-            <div className="space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Tạm tính</span>
+          {/* Order Summary */}
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-lg shadow-custom p-6 sticky top-24">
+              <h2 className="text-lg font-semibold mb-4">Tổng cộng</h2>
+              <div className="flex justify-between mb-2">
+                <span>Tạm tính</span>
                 <span>{formatCurrency(getTotal())}</span>
               </div>
-              
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Phí giao dịch</span>
-                <span>{formatCurrency(0)}</span>
+              <div className="flex justify-between font-bold text-xl border-t pt-4 mt-4">
+                <span>Tổng tiền</span>
+                <span>{formatCurrency(getTotal())}</span>
               </div>
-              
-              <div className="border-t pt-3 mt-3">
-                <div className="flex justify-between items-center">
-                  <span className="font-semibold">Tổng cộng</span>
-                  <span className="text-xl font-bold">{formatCurrency(getTotal())}</span>
-                </div>
-              </div>
+              <button
+                onClick={handleCheckout}
+                className="w-full btn btn-primary mt-6 py-3"
+              >
+                Tiến hành thanh toán
+              </button>
             </div>
-            
-            <Link
-              to="/thanh-toan"
-              className="btn btn-primary w-full mt-6"
-            >
-              Thanh toán
-            </Link>
-            
-            <Link
-              to="/san-pham"
-              className="btn btn-outline w-full mt-3"
-            >
-              Tiếp tục mua sắm
+          </div>
+        </div>
+      ) : (
+        <div className="text-center py-16 bg-white rounded-lg shadow-custom">
+          <ShoppingBag className="mx-auto h-12 w-12 text-gray-400" />
+          <h3 className="mt-2 text-lg font-medium text-gray-900">Giỏ hàng của bạn đang trống</h3>
+          <p className="mt-1 text-sm text-gray-500">Thêm sản phẩm vào giỏ hàng để tiếp tục mua sắm.</p>
+          <div className="mt-6">
+            <Link to="/" className="btn btn-primary inline-flex items-center">
+                <ArrowLeft size={16} className="mr-2" />
+                Quay lại trang chủ
             </Link>
           </div>
         </div>

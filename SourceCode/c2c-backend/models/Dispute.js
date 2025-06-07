@@ -17,20 +17,20 @@ const Dispute = sequelize.define('Dispute', {
         allowNull: false,
         references: { model: 'users', key: 'id' }
     },
-    defendant_id: { // Seller ID
+    defendant_id: { // Seller ID - Cột này là nguyên nhân gây lỗi
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: false,
         references: { model: 'users', key: 'id' }
     },
-    reason: { // Lý do khiếu nại ban đầu của người mua
+    reason: {
         type: DataTypes.TEXT,
         allowNull: false,
     },
-    seller_response: { // Phản hồi của người bán
+    seller_response: {
         type: DataTypes.TEXT,
         allowNull: true,
     },
-    buyer_rebuttal: { // Phản hồi lại của người mua (nếu có)
+    buyer_rebuttal: {
         type: DataTypes.TEXT,
         allowNull: true,
     },
@@ -39,18 +39,18 @@ const Dispute = sequelize.define('Dispute', {
         allowNull: false,
         defaultValue: 'open',
     },
-    resolution_notes: { // Ghi chú giải quyết của Admin
+    resolution_notes: {
         type: DataTypes.TEXT,
         allowNull: true,
     },
-    admin_id: { // Admin xử lý
+    admin_id: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
         references: { model: 'users', key: 'id' }
     }
 }, {
     tableName: 'disputes',
-    timestamps: true,
+    timestamps: true, // Sequelize sẽ tự quản lý createdAt và updatedAt
 });
 
 module.exports = Dispute;

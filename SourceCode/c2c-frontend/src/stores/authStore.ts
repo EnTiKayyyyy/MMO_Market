@@ -1,123 +1,81 @@
 import { create } from 'zustand';
+import { jwtDecode } from 'jwt-decode';
+import * as authService from '../services/authService';
 
 type UserRole = 'buyer' | 'seller' | 'admin';
 
 interface User {
   id: string;
   email: string;
-  name: string;
   role: UserRole;
+  name?: string;
   avatar?: string;
 }
 
 interface AuthStore {
   user: User | null;
+  token: string | null; 
   isAuthenticated: boolean;
-  isLoading: boolean;
+  isLoading: boolean; // Sẽ đại diện cho cả trạng thái tải ban đầu
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (name: string, email: string, password: string, role: 'buyer' | 'seller') => Promise<void>;
   logout: () => void;
   initAuth: () => void;
 }
 
-// Danh sách tài khoản test
-const TEST_ACCOUNTS = {
-  buyer: {
-    email: 'buyer@test.com',
-    password: 'buyer123',
-    name: 'Người Mua Test',
-    role: 'buyer' as UserRole,
-  },
-  seller: {
-    email: 'seller@test.com',
-    password: 'seller123',
-    name: 'Người Bán Test',
-    role: 'seller' as UserRole,
-  },
-  admin: {
-    email: 'admin@test.com',
-    password: 'admin123',
-    name: 'Quản Trị Viên',
-    role: 'admin' as UserRole,
-  }
-};
-
-export const useAuthStore = create<AuthStore>((set) => ({
+export const useAuthStore = create<AuthStore>((set, get) => ({
   user: null,
+  token: null,
   isAuthenticated: false,
-  isLoading: false,
+  isLoading: true, // BẮT ĐẦU VỚI TRẠNG THÁI ĐANG TẢI
   error: null,
   
   initAuth: () => {
-    const savedUser = localStorage.getItem('user');
-    if (savedUser) {
-      try {
-        const userData = JSON.parse(savedUser);
-        set({ user: userData, isAuthenticated: true });
-      } catch (error) {
-        localStorage.removeItem('user');
-        set({ user: null, isAuthenticated: false });
+    try {
+      const token = localStorage.getItem('token');
+      if (token) {
+        const decoded: { id: string, role: UserRole, username: string, email: string } = jwtDecode(token);
+        const user: User = { id: decoded.id, role: decoded.role, name: decoded.username, email: decoded.email };
+        set({ user, token, isAuthenticated: true });
       }
+    } catch (error) {
+      console.error("Token không hợp lệ, đang xóa...", error);
+      localStorage.removeItem('token');
+      set({ user: null, token: null, isAuthenticated: false });
+    } finally {
+      // ĐÁNH DẤU LÀ ĐÃ KIỂM TRA XONG, DÙ THÀNH CÔNG HAY THẤT BẠI
+      set({ isLoading: false }); 
     }
   },
   
   login: async (email, password) => {
     set({ isLoading: true, error: null });
     try {
-      // Giả lập đăng nhập với tài khoản test
-      const account = Object.values(TEST_ACCOUNTS).find(
-        acc => acc.email === email && acc.password === password
-      );
-
-      if (account) {
-        const user = {
-          id: Math.random().toString(36).substr(2, 9),
-          email: account.email,
-          name: account.name,
-          role: account.role,
-        };
-        
-        localStorage.setItem('user', JSON.stringify(user));
-        set({ user, isAuthenticated: true, isLoading: false });
-      } else {
-        throw new Error('Email hoặc mật khẩu không đúng');
-      }
-    } catch (error) {
-      set({ 
-        error: error instanceof Error ? error.message : 'Đăng nhập thất bại',
-        isLoading: false 
-      });
+      const { token, user: userData } = await authService.login(email, password);
+      localStorage.setItem('token', token);
+      set({ user: userData, token, isAuthenticated: true, isLoading: false });
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.message || 'Email hoặc mật khẩu không đúng.';
+      set({ error: errorMessage, isLoading: false });
+      throw err;
     }
   },
   
-  register: async (email, password, name) => {
+  register: async (name, email, password, role) => {
     set({ isLoading: true, error: null });
     try {
-      // Kiểm tra email đã tồn tại
-      if (Object.values(TEST_ACCOUNTS).some(acc => acc.email === email)) {
-        throw new Error('Email đã được sử dụng');
-      }
-
-      const user = {
-        id: Math.random().toString(36).substr(2, 9),
-        email,
-        name,
-        role: 'buyer' as UserRole,
-      };
-      
-      localStorage.setItem('user', JSON.stringify(user));
-      set({ user, isAuthenticated: true, isLoading: false });
-    } catch (error) {
-      set({ 
-        error: error instanceof Error ? error.message : 'Đăng ký thất bại',
-        isLoading: false 
-      });
+      await authService.register(name, name, email, password, role);
+      await get().login(email, password);
+    } catch (err: any)      {
+      const errorMessage = err.response?.data?.message || 'Đăng ký thất bại. Vui lòng thử lại.';
+      set({ error: errorMessage, isLoading: false });
+      throw err;
     }
   },
   
   logout: () => {
-    localStorage.removeItem('user');
-    set({ user: null, isAuthenticated: false });
+    localStorage.removeItem('token');
+    set({ user: null, token: null, isAuthenticated: false });
   }
 }));

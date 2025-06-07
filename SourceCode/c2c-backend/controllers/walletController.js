@@ -1,5 +1,5 @@
 const { Wallet, Transaction, sequelize } = require('../models');
-const { generateVnpayUrl, moment } = require('../utils/vnpayHelpers'); // Import helper của VNPay
+// const { generateVnpayUrl, moment } = require('../utils/vnpayHelpers'); // Import helper của VNPay
 const { validationResult } = require('express-validator');
 require('dotenv').config();
 

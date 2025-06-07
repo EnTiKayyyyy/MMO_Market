@@ -1,200 +1,104 @@
-import { useState } from 'react';
-import { DollarSign, ArrowDown, ArrowUp, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { DollarSign, Clock, AlertTriangle, ArrowUp } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '../../utils/format';
 import { useWalletStore } from '../../stores/walletStore';
 
 const BuyerWallet = () => {
-  const { balance, pendingBalance, transactions, deposit } = useWalletStore();
+  // Lấy các giá trị state và hàm actions từ store
+  const { balance, transactions, isLoading, error, fetchWalletData, deposit } = useWalletStore();
+  
   const [depositAmount, setDepositAmount] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isDepositing, setIsDepositing] = useState(false);
+
+  // Gọi hàm fetchWalletData một lần duy nhất khi component được tải
+  useEffect(() => {
+    fetchWalletData();
+  }, [fetchWalletData]);
 
   const handleDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!depositAmount || isLoading) return;
+    if (!depositAmount || isDepositing || Number(depositAmount) < 10000) {
+        alert("Số tiền nạp phải ít nhất là 10,000đ.");
+        return;
+    }
 
+    setIsDepositing(true);
     try {
-      setIsLoading(true);
-      await deposit(Number(depositAmount));
-      setDepositAmount('');
-      alert('Nạp tiền thành công!');
-    } catch (error) {
-      alert('Có lỗi xảy ra khi nạp tiền');
-    } finally {
-      setIsLoading(false);
+      // Gọi action `deposit` từ store
+      const { paymentUrl } = await deposit(Number(depositAmount));
+      // Nếu thành công, điều hướng người dùng đến cổng thanh toán
+      window.location.href = paymentUrl;
+    } catch (err: any) {
+      alert(err.message || 'Có lỗi xảy ra khi tạo yêu cầu nạp tiền.');
+      setIsDepositing(false);
     }
   };
 
-  const getTransactionStatusColor = (status: string) => {
-    switch(status) {
-      case 'completed': return 'text-success-600 bg-success-50';
-      case 'pending': return 'text-warning-600 bg-warning-50';
-      case 'failed': return 'text-error-600 bg-error-50';
-      default: return 'text-gray-600 bg-gray-50';
+  // Component con để render nội dung chính dựa trên trạng thái
+  const renderContent = () => {
+    if (isLoading) {
+      return (
+        <div className="flex justify-center items-center py-20">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        </div>
+      );
     }
-  };
 
-  const getTransactionStatusText = (status: string) => {
-    switch(status) {
-      case 'completed': return 'Hoàn thành';
-      case 'pending': return 'Đang xử lý';
-      case 'failed': return 'Thất bại';
-      default: return 'Không xác định';
+    if (error) {
+      return (
+        <div className="text-center py-16 bg-red-50 rounded-lg">
+          <AlertCircle className="mx-auto h-12 w-12 text-error-500" />
+          <h3 className="mt-2 text-lg font-medium text-error-800">Đã xảy ra lỗi</h3>
+          <p className="mt-1 text-sm text-error-700">{error}</p>
+        </div>
+      );
     }
-  };
 
-  const getTransactionStatusIcon = (status: string) => {
-    switch(status) {
-      case 'completed': return <CheckCircle size={16} />;
-      case 'pending': return <Clock size={16} />;
-      case 'failed': return <AlertTriangle size={16} />;
-      default: return null;
-    }
-  };
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-3">
+            <div className="bg-white rounded-lg shadow-custom p-6">
+                <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-medium text-gray-700">Số dư khả dụng</h3>
+                    <div className="p-2 rounded-full bg-primary-100 text-primary-600"><DollarSign size={20} /></div>
+                </div>
+                <p className="text-4xl font-bold text-primary-700">{formatCurrency(balance)}</p>
+            </div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-custom p-6">
+          <h2 className="text-lg font-semibold mb-4">Nạp tiền vào ví</h2>
+          <form onSubmit={handleDeposit} className="space-y-4">
+            <div>
+              <label htmlFor="amount" className="block text-sm font-medium text-gray-700 mb-1">Số tiền muốn nạp</label>
+              <input type="number" id="amount" value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} className="input" placeholder="Nhập số tiền" min="10000" step="1000" required />
+            </div>
+            <button type="submit" disabled={isDepositing} className="btn btn-primary w-full flex items-center justify-center">
+              {isDepositing ? "Đang xử lý..." : <><ArrowUp size={18} className="mr-2"/> Tiếp tục</>}
+            </button>
+          </form>
+          <div className="mt-4 text-sm text-gray-500"><p className="font-semibold">Lưu ý:</p><ul className="list-disc list-inside ml-4"><li>Số tiền nạp tối thiểu là 10,000đ.</li><li>Bạn sẽ được chuyển đến cổng thanh toán an toàn.</li></ul></div>
+        </div>
 
+        <div className="lg:col-span-2 bg-white rounded-lg shadow-custom p-6">
+          <h2 className="text-lg font-semibold mb-4">Lịch sử giao dịch</h2>
+          {transactions.length > 0 ? (
+            <div className="overflow-x-auto">{/* Bảng hiển thị giao dịch sẽ ở đây */}</div>
+          ) : (
+            <div className="text-center py-12 text-gray-500">Chưa có giao dịch nào.</div>
+          )}
+        </div>
+      </div>
+    );
+  };
+  
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Ví của tôi</h1>
-        <p className="text-gray-600 mt-1">Quản lý số dư và giao dịch</p>
+        <p className="text-gray-600 mt-1">Quản lý số dư và các giao dịch của bạn</p>
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow-custom p-6">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-medium text-gray-700">Số dư khả dụng</h3>
-            <div className="p-2 rounded-full bg-primary-100 text-primary-600">
-              <DollarSign size={20} />
-            </div>
-          </div>
-          <p className="text-2xl font-bold">{formatCurrency(balance)}</p>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-custom p-6">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-medium text-gray-700">Đang chờ xử lý</h3>
-            <div className="p-2 rounded-full bg-warning-100 text-warning-600">
-              <Clock size={20} />
-            </div>
-          </div>
-          <p className="text-2xl font-bold">{formatCurrency(pendingBalance)}</p>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-custom p-6">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-medium text-gray-700">Tổng giao dịch</h3>
-            <div className="p-2 rounded-full bg-accent-100 text-accent-600">
-              <ArrowDown size={20} />
-            </div>
-          </div>
-          <p className="text-2xl font-bold">{transactions.length}</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Nạp tiền */}
-        <div className="bg-white rounded-lg shadow-custom p-6">
-          <h2 className="text-lg font-semibold mb-4">Nạp tiền</h2>
-          <form onSubmit={handleDeposit}>
-            <div className="mb-4">
-              <label htmlFor="amount" className="block text-sm font-medium text-gray-700 mb-1">
-                Số tiền muốn nạp
-              </label>
-              <input
-                type="number"
-                id="amount"
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
-                className="input"
-                placeholder="Nhập số tiền"
-                min="10000"
-                step="10000"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={!depositAmount || isLoading}
-              className="btn btn-primary w-full"
-            >
-              {isLoading ? 'Đang xử lý...' : 'Nạp tiền'}
-            </button>
-          </form>
-
-          <div className="mt-4 text-sm text-gray-500">
-            <p>Lưu ý:</p>
-            <ul className="list-disc list-inside">
-              <li>Số tiền nạp tối thiểu là 10,000đ</li>
-              <li>Giao dịch được xử lý tự động</li>
-              <li>Liên hệ hỗ trợ nếu cần giúp đỡ</li>
-            </ul>
-          </div>
-        </div>
-
-        {/* Lịch sử giao dịch */}
-        <div className="md:col-span-2 bg-white rounded-lg shadow-custom p-6">
-          <h2 className="text-lg font-semibold mb-4">Lịch sử giao dịch</h2>
-          
-          {transactions.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                      Thời gian
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                      Loại
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                      Số tiền
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                      Trạng thái
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map((transaction) => (
-                    <tr key={transaction.id} className="border-b last:border-0">
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                        {formatDateTime(transaction.createdAt)}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`inline-flex items-center text-sm ${
-                          transaction.type === 'deposit'
-                            ? 'text-success-600'
-                            : transaction.type === 'withdraw'
-                            ? 'text-error-600'
-                            : 'text-gray-600'
-                        }`}>
-                          {transaction.type === 'deposit' && <ArrowUp size={16} className="mr-1" />}
-                          {transaction.type === 'withdraw' && <ArrowDown size={16} className="mr-1" />}
-                          {transaction.type === 'deposit' ? 'Nạp tiền' : transaction.type === 'withdraw' ? 'Rút tiền' : 'Thanh toán'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm">
-                        <span className={transaction.type === 'deposit' ? 'text-success-600' : 'text-error-600'}>
-                          {transaction.type === 'deposit' ? '+' : '-'}{formatCurrency(transaction.amount)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getTransactionStatusColor(transaction.status)}`}>
-                          {getTransactionStatusIcon(transaction.status)}
-                          <span className="ml-1">{getTransactionStatusText(transaction.status)}</span>
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-center py-8 text-gray-500">
-              Chưa có giao dịch nào
-            </div>
-          )}
-        </div>
-      </div>
+      {renderContent()}
     </div>
   );
 };

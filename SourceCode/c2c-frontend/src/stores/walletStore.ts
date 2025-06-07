@@ -1,84 +1,51 @@
 import { create } from 'zustand';
+import { getMyWallet, createDepositRequest } from '../services/walletService';
+import type { TransactionData } from '../services/walletService';
 
-interface Transaction {
-  id: string;
-  type: 'deposit' | 'withdraw' | 'payment';
-  amount: number;
-  description: string;
-  status: 'pending' | 'completed' | 'failed';
-  createdAt: string;
-}
-
-interface WalletStore {
+interface WalletState {
   balance: number;
-  pendingBalance: number;
-  transactions: Transaction[];
-  deposit: (amount: number) => Promise<void>;
-  withdraw: (amount: number, bankInfo: any) => Promise<void>;
-  pay: (amount: number) => Promise<void>;
+  transactions: TransactionData[];
+  isLoading: boolean;
+  error: string | null;
+  fetchWalletData: () => Promise<void>;
+  deposit: (amount: number) => Promise<{ paymentUrl: string }>;
 }
 
-export const useWalletStore = create<WalletStore>((set, get) => ({
+export const useWalletStore = create<WalletState>((set) => ({
   balance: 0,
-  pendingBalance: 0,
-  transactions: [],
+  transactions: [], // Sẽ cập nhật khi có API
+  isLoading: true,
+  error: null,
 
+  /**
+   * Action để tải dữ liệu ví từ API và cập nhật state.
+   */
+  fetchWalletData: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const walletData = await getMyWallet();
+      set({
+        balance: parseFloat(walletData.balance), // Chuyển đổi string từ API thành number
+        isLoading: false,
+      });
+      // Khi có API lấy lịch sử giao dịch, bạn sẽ gọi nó ở đây
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.message || "Không thể tải dữ liệu ví.";
+      set({ error: errorMessage, isLoading: false });
+    }
+  },
+
+  /**
+   * Action để tạo yêu cầu nạp tiền.
+   * Nó sẽ trả về URL thanh toán để điều hướng người dùng.
+   */
   deposit: async (amount: number) => {
-    // Giả lập API call
-    const transaction: Transaction = {
-      id: Math.random().toString(36).substr(2, 9),
-      type: 'deposit',
-      amount,
-      description: 'Nạp tiền vào ví',
-      status: 'completed',
-      createdAt: new Date().toISOString()
-    };
-
-    set(state => ({
-      balance: state.balance + amount,
-      transactions: [transaction, ...state.transactions]
-    }));
-  },
-
-  withdraw: async (amount: number, bankInfo: any) => {
-    if (amount > get().balance) {
-      throw new Error('Số dư không đủ');
+    try {
+        const response = await createDepositRequest(amount);
+        return response; // Trả về { paymentUrl: '...' }
+    } catch (err: any) {
+        const errorMessage = err.response?.data?.message || "Không thể tạo yêu cầu nạp tiền.";
+        throw new Error(errorMessage);
     }
-
-    // Giả lập API call
-    const transaction: Transaction = {
-      id: Math.random().toString(36).substr(2, 9),
-      type: 'withdraw',
-      amount,
-      description: 'Rút tiền về tài khoản ngân hàng',
-      status: 'pending',
-      createdAt: new Date().toISOString()
-    };
-
-    set(state => ({
-      pendingBalance: state.pendingBalance + amount,
-      transactions: [transaction, ...state.transactions]
-    }));
   },
-
-  pay: async (amount: number) => {
-    if (amount > get().balance) {
-      throw new Error('Số dư không đủ');
-    }
-
-    // Giả lập API call
-    const transaction: Transaction = {
-      id: Math.random().toString(36).substr(2, 9),
-      type: 'payment',
-      amount,
-      description: 'Thanh toán đơn hàng',
-      status: 'completed',
-      createdAt: new Date().toISOString()
-    };
-
-    set(state => ({
-      balance: state.balance - amount,
-      transactions: [transaction, ...state.transactions]
-    }));
-  }
 }));

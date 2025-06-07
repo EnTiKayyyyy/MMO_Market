@@ -4,10 +4,16 @@ const { Op } = require('sequelize'); // Để dùng các toán tử của Sequel
 // @desc    Tạo sản phẩm mới
 exports.createProduct = async (req, res) => {
     try {
-        const { name, description, price, category_id, product_data, status } = req.body;
-        const seller_id = req.user.id; // Lấy từ middleware protect
+        const { name, description, price, category_id, product_data } = req.body;
+        const seller_id = req.user.id;
 
-        // Kiểm tra Category có tồn tại không
+        // Xử lý đường dẫn file ảnh
+        let thumbnail_url = null;
+        if (req.file) {
+            // Đường dẫn tương đối để frontend có thể truy cập
+            thumbnail_url = `/uploads/products/${req.file.filename}`;
+        }
+
         const category = await Category.findByPk(category_id);
         if (!category) {
             return res.status(404).json({ message: 'Danh mục không tồn tại.' });
@@ -17,13 +23,14 @@ exports.createProduct = async (req, res) => {
             name,
             description,
             price,
+            thumbnail_url, // <-- LƯU ĐƯỜNG DẪN ẢNH
             category_id,
-            product_data, // Lưu ý bảo mật và mã hóa nếu cần thiết
-            status: req.user.role === 'admin' ? (status || 'available') : 'pending_approval', // Admin có thể set status, seller thì pending
+            product_data,
+            status: req.user.role === 'admin' ? 'available' : 'pending_approval',
             seller_id
         });
 
-        res.status(201).json({ message: 'Sản phẩm đã được tạo thành công và chờ duyệt (nếu bạn là seller).', product: newProduct });
+        res.status(201).json({ message: 'Sản phẩm đã được tạo và chờ duyệt.', product: newProduct });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Lỗi server khi tạo sản phẩm.', error: error.message });

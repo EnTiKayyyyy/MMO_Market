@@ -6,6 +6,87 @@ require('dotenv').config();
 
 const COMMISSION_RATE = parseFloat(process.env.COMMISSION_RATE) || 0.05; // 5% phí sàn
 
+
+/**
+ * @desc    Người mua lấy product_data của một mục đơn hàng đã hoàn thành
+ * @route   GET /api/orders/items/:itemId/product-data
+ * @access  Private/Buyer
+ */
+exports.getOrderItemProductDataForBuyer = async (req, res) => {
+    try {
+        const { itemId } = req.params;
+        const buyerId = req.user.id;
+
+        const orderItem = await OrderItem.findByPk(itemId, {
+            include: [
+                { model: Order, as: 'order', attributes: ['status', 'buyer_id'] },
+                { model: Product, as: 'product', attributes: ['product_data'] }
+            ]
+        });
+
+        if (!orderItem) {
+            return res.status(404).json({ message: 'Không tìm thấy mục đơn hàng.' });
+        }
+
+        // Kiểm tra bảo mật:
+        // 1. Người yêu cầu có phải là người mua của đơn hàng này không?
+        if (orderItem.order.buyer_id !== buyerId) {
+            return res.status(403).json({ message: 'Bạn không có quyền xem thông tin này.' });
+        }
+
+        // 2. Đơn hàng đã hoàn thành chưa?
+        if (orderItem.order.status !== 'completed') {
+            return res.status(403).json({ message: 'Chỉ có thể xem thông tin khi đơn hàng đã hoàn thành.' });
+        }
+
+        res.json({ product_data: orderItem.product.product_data });
+
+    } catch (error) {
+        console.error('Lỗi khi lấy product_data cho người mua:', error);
+        res.status(500).json({ message: 'Lỗi server.' });
+    }
+};
+
+/**
+ * @desc    Admin cập nhật trạng thái đơn hàng
+ * @route   PUT /api/orders/:id/status
+ * @access  Private/Admin
+ */
+exports.updateOrderStatusAdmin = async (req, res) => {
+    const { status } = req.body;
+    const { id } = req.params;
+
+    // Validate status
+    const validStatuses = ['pending', 'paid', 'processing', 'partially_completed', 'completed', 'cancelled', 'disputed', 'refunded'];
+    if (!validStatuses.includes(status)) {
+        return res.status(400).json({ message: 'Trạng thái không hợp lệ.' });
+    }
+
+    try {
+        const order = await Order.findByPk(id);
+
+        if (!order) {
+            return res.status(404).json({ message: 'Không tìm thấy đơn hàng.' });
+        }
+
+        order.status = status;
+        
+        // Nếu đơn hàng hoàn thành, cập nhật trạng thái của các mục con
+        if (status === 'completed') {
+            await OrderItem.update({ status: 'confirmed' }, { where: { order_id: id } });
+        }
+        
+        await order.save();
+
+        // TODO: Gửi thông báo cho người mua/người bán về việc cập nhật đơn hàng
+
+        res.json({ message: 'Cập nhật trạng thái đơn hàng thành công.', order });
+    } catch (error) {
+        console.error('Lỗi khi cập nhật trạng thái đơn hàng:', error);
+        res.status(500).json({ message: 'Lỗi server.' });
+    }
+};
+
 // @desc    Tạo đơn hàng mới
 exports.createOrder = async (req, res) => {
     const { items } = req.body; // items: [{ product_id, quantity (mặc định là 1 cho digital) }]
@@ -376,7 +457,7 @@ exports.getOrderById = async (req, res) => {
                     model: OrderItem,
                     as: 'items',
                     include: [
-                        { model: Product, as: 'product', attributes: ['id', 'name', 'description', /* KHÔNG LẤY product_data ở đây */] },
+                        { model: Product, as: 'product', attributes: ['id', 'name', 'thumbnail_url', 'description', /* KHÔNG LẤY product_data ở đây */] },
                         { model: User, as: 'seller', attributes: ['id', 'username']}
                     ]
                 }
@@ -524,62 +605,84 @@ exports.getAllOrdersAdmin = async (req, res) => {
     }
 };
 
-// @desc    Admin: Cập nhật trạng thái đơn hàng
+
+/**
+ * @desc    Admin cập nhật trạng thái đơn hàng
+ * @route   PUT /api/orders/:id/status
+ * @access  Private/Admin
+ */
 exports.updateOrderStatusAdmin = async (req, res) => {
-    const { orderId } = req.params;
-    const { status } = req.body; // Trạng thái mới
-    // Cần validate status là một trong các ENUM hợp lệ
-    const validStatuses = Order.getAttributes().status.values;
+    const { status } = req.body;
+    const { id } = req.params;
+
+    const validStatuses = ['pending', 'paid', 'processing', 'partially_completed', 'completed', 'cancelled', 'disputed', 'refunded'];
     if (!validStatuses.includes(status)) {
-        return res.status(400).json({ message: `Trạng thái "${status}" không hợp lệ.` });
+        return res.status(400).json({ message: 'Trạng thái không hợp lệ.' });
     }
 
-    let dbTransaction;
+    // Bắt đầu một transaction để đảm bảo toàn vẹn dữ liệu
+    const t = await sequelize.transaction();
+
     try {
-        dbTransaction = await sequelize.transaction();
-        const order = await Order.findByPk(orderId, {
-            include: [{model: OrderItem, as: 'items', include: [{model: Product, as: 'product'}]}],
-            transaction: dbTransaction
+        const order = await Order.findByPk(id, {
+            include: [{ model: OrderItem, as: 'items' }],
+            transaction: t
         });
+
         if (!order) {
-            await dbTransaction.rollback();
-            return res.status(404).json({ message: "Đơn hàng không tìm thấy" });
+            await t.rollback();
+            return res.status(404).json({ message: 'Không tìm thấy đơn hàng.' });
         }
-
-        const oldStatus = order.status;
-        order.status = status;
-        await order.save({ transaction: dbTransaction });
-
-        // Nếu admin chuyển sang 'cancelled' hoặc 'refunded' và trước đó là 'paid'
-        if ((status === 'cancelled' || status === 'refunded') && oldStatus === 'paid') {
-            // Hoàn lại trạng thái sản phẩm
+        
+        // Logic chính: Xử lý khi đơn hàng được đánh dấu là "hoàn thành"
+        if (status === 'completed' && order.status !== 'completed') {
+            
+            // Lặp qua từng mục trong đơn hàng để xử lý thanh toán cho người bán
             for (const item of order.items) {
-                if(item.product && item.product.status === 'sold'){
-                    const productToUpdate = await Product.findByPk(item.product_id, {transaction: dbTransaction});
-                    if(productToUpdate) {
-                        productToUpdate.status = 'available';
-                        await productToUpdate.save({ transaction: dbTransaction });
-                    }
+                const itemPrice = parseFloat(item.price);
+                const commissionFee = itemPrice * PLATFORM_COMMISSION_RATE;
+                const sellerAmount = itemPrice - commissionFee;
+
+                // 1. Cập nhật ví của người bán
+                const sellerWallet = await Wallet.findOne({ where: { user_id: item.seller_id }, transaction: t });
+                if (sellerWallet) {
+                    // Cộng tiền vào ví của người bán
+                    await sellerWallet.increment('balance', { by: sellerAmount, transaction: t });
+                } else {
+                    // Nếu người bán chưa có ví, đây là một lỗi hệ thống cần được xem xét
+                    throw new Error(`Không tìm thấy ví cho người bán ID ${item.seller_id}`);
                 }
-                item.status = 'cancelled'; // Hoặc 'refunded'
-                await item.save({transaction: dbTransaction});
+
+                // 2. Ghi nhận giao dịch vào bảng Transactions
+                await Transaction.create({
+                    wallet_id: sellerWallet.id,
+                    order_item_id: item.id,
+                    amount: sellerAmount,
+                    type: 'sale_credit', // Ghi nhận là tiền bán hàng
+                    description: `Nhận tiền từ đơn hàng #${order.id}, sản phẩm #${item.id}`,
+                    status: 'completed'
+                }, { transaction: t });
+
+                // 3. Cập nhật trạng thái và phí hoa hồng cho mục đơn hàng
+                item.status = 'confirmed';
+                item.commission_fee = commissionFee;
+                await item.save({ transaction: t });
             }
-            // Ghi nhận giao dịch hoàn tiền
-            await Transaction.create({
-                user_id: order.buyer_id,
-                type: 'refund',
-                amount: parseFloat(order.total_amount),
-                status: 'completed',
-                notes: `Admin action: Order ${order.id} status changed to ${status}.`
-            }, { transaction: dbTransaction });
         }
-        // Thêm logic khác nếu cần khi admin thay đổi status (vd: thông báo)
 
+        // Cập nhật trạng thái của đơn hàng chính
+        order.status = status;
+        await order.save({ transaction: t });
+        
+        // Nếu tất cả thành công, commit transaction
+        await t.commit();
 
-        await dbTransaction.commit();
-        res.json({ message: `Trạng thái đơn hàng đã được cập nhật thành ${status}.`, order });
+        res.json({ message: 'Cập nhật trạng thái đơn hàng và xử lý thanh toán thành công.', order });
+
     } catch (error) {
-        if (dbTransaction) await dbTransaction.rollback();
-        res.status(500).json({ message: "Lỗi server", error: error.message });
+        // Nếu có bất kỳ lỗi nào, rollback tất cả các thay đổi
+        await t.rollback();
+        console.error('Lỗi khi cập nhật trạng thái đơn hàng:', error);
+        res.status(500).json({ message: 'Lỗi server.', error: error.message });
     }
 };

@@ -55,5 +55,12 @@ router.get('/', protect, authorize('admin'), orderController.getAllOrdersAdmin);
 // @access  Private (Admin)
 router.put('/:orderId/status', protect, authorize('admin'), orderController.updateOrderStatusAdmin);
 
+router.put('/:id/status', protect, authorize('admin'), orderController.updateOrderStatusAdmin);
 
+router.get(
+    '/items/:itemId/product-data', 
+    protect, 
+    authorize('buyer', 'admin'), // Cho phép cả admin xem để hỗ trợ
+    orderController.getOrderItemProductDataForBuyer
+);
 module.exports = router;

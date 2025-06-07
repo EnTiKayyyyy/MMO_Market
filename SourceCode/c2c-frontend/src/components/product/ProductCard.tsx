@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Clock, Star, Shield, BarChart } from 'lucide-react';
+import { Star, Shield, BarChart } from 'lucide-react';
 import { Product } from '../../types/product';
 import { formatCurrency } from '../../utils/format';
 
@@ -7,15 +7,24 @@ interface ProductCardProps {
   product: Product;
 }
 
+const API_URL = 'http://localhost:3000'; // URL của backend
+
 const ProductCard = ({ product }: ProductCardProps) => {
+  // Tạo URL đầy đủ cho ảnh
+  const imageUrl = product.thumbnail_url 
+    ? `${API_URL}${product.thumbnail_url}`
+    : 'https://placehold.co/600x400';
+
   return (
     <Link to={`/san-pham/${product.id}`} className="group">
       <div className="bg-white rounded-lg overflow-hidden shadow-custom transition-all duration-300 hover:shadow-custom-lg">
         <div className="relative">
           <img
-            src={product.thumbnail}
+            src={imageUrl}
             alt={product.name}
             className="w-full h-48 object-cover"
+            // Xử lý lỗi nếu ảnh không tải được
+            
           />
           {product.discount > 0 && (
             <div className="absolute top-2 right-2 bg-error-500 text-white text-xs font-bold rounded-full px-2 py-1">
@@ -25,6 +34,7 @@ const ProductCard = ({ product }: ProductCardProps) => {
         </div>
         
         <div className="p-4">
+          {/* ... phần còn lại của component không đổi */}
           <div className="mb-2 flex items-center">
             <span className={`badge ${getCategoryBadgeColor(product.category.id)}`}>
               {product.category.name}
@@ -34,14 +44,10 @@ const ProductCard = ({ product }: ProductCardProps) => {
               <span className="text-sm ml-1">{product.rating}</span>
             </div>
           </div>
-          
-          <h3 className="font-medium text-gray-900 mb-1 group-hover:text-primary-600 transition-colors">
+          <h3 className="font-medium text-gray-900 mb-1 group-hover:text-primary-600 transition-colors h-12 line-clamp-2">
             {product.name}
           </h3>
-          
-          <p className="text-gray-500 text-sm mb-3 line-clamp-2">{product.description}</p>
-          
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mt-4">
             <div>
               {product.discount > 0 ? (
                 <div>
@@ -52,25 +58,6 @@ const ProductCard = ({ product }: ProductCardProps) => {
                 <span className="text-gray-900 font-semibold">{formatCurrency(product.price)}</span>
               )}
             </div>
-            
-            <div className="flex items-center text-gray-500 text-sm">
-              {product.inStock > 0 ? (
-                <span className="flex items-center text-secondary-600">
-                  <Shield size={14} className="mr-1" />
-                  Còn hàng
-                </span>
-              ) : (
-                <span className="flex items-center text-error-600">
-                  <Clock size={14} className="mr-1" />
-                  Hết hàng
-                </span>
-              )}
-            </div>
-          </div>
-          
-          <div className="flex items-center text-xs text-gray-500 mt-2 border-t pt-2">
-            <BarChart size={12} className="mr-1" />
-            <span>Đã bán: {product.sold}</span>
           </div>
         </div>
       </div>
@@ -78,12 +65,10 @@ const ProductCard = ({ product }: ProductCardProps) => {
   );
 };
 
-// Tính giá sau khi giảm giá
+// ... các hàm helper khác giữ nguyên
 const getDiscountedPrice = (product: Product) => {
   return product.price - (product.price * product.discount) / 100;
 };
-
-// Màu badge theo danh mục
 const getCategoryBadgeColor = (categoryId: number) => {
   const colors = ['badge-blue', 'badge-green', 'badge-yellow', 'badge-red'];
   return colors[categoryId % colors.length];

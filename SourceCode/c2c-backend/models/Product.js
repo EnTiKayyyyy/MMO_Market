@@ -26,10 +26,15 @@ const Product = sequelize.define('Product', {
         type: DataTypes.DECIMAL(12, 2),
         allowNull: false,
     },
-    product_data: { // Nội dung sản phẩm kỹ thuật số
+    // THÊM MỚI: Cột để lưu đường dẫn ảnh đại diện
+    thumbnail_url: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+    },
+    product_data: {
         type: DataTypes.TEXT,
         allowNull: false,
-        // Cân nhắc mã hóa dữ liệu này ở tầng ứng dụng trước khi lưu
+        comment: 'Nội dung sản phẩm, cần được mã hóa',
     },
     status: {
         type: DataTypes.ENUM('pending_approval', 'available', 'sold', 'delisted'),
@@ -40,9 +45,5 @@ const Product = sequelize.define('Product', {
     tableName: 'products',
     timestamps: true,
 });
-
-// Định nghĩa quan hệ (Associations)
-// Product.belongsTo(models.User, { foreignKey: 'seller_id', as: 'seller' });
-// Product.belongsTo(models.Category, { foreignKey: 'category_id', as: 'category' });
 
 module.exports = Product;

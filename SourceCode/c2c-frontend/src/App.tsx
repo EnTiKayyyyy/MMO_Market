@@ -26,13 +26,17 @@ import OrderDetail from './pages/orders/OrderDetail';
 import Messages from './pages/messages/Messages';
 import { useAuthStore } from './stores/authStore';
 import ProtectedRoute from './components/auth/ProtectedRoute';
+import AddProduct from './pages/seller/AddProduct';
+import EditProductAdmin from './pages/admin/EditProduct';
+import AdminOrderDetail from './pages/admin/AdminOrderDetail';
 
 function App() {
   const { initAuth } = useAuthStore();
 
+  // Sử dụng useEffect để gọi initAuth() MỘT LẦN DUY NHẤT khi component được render lần đầu
   useEffect(() => {
     initAuth();
-  }, [initAuth]);
+  }, [initAuth]); // Dependency array đảm bảo hàm chỉ chạy một lần
 
   return (
     <Routes>
@@ -54,12 +58,14 @@ function App() {
           <Route path="don-hang" element={<OrderHistory />} />
           <Route path="don-hang/:id" element={<OrderDetail />} />
           <Route path="tin-nhan" element={<Messages />} />
+          
         </Route>
 
         {/* Seller protected routes */}
         <Route element={<ProtectedRoute role="seller" />}>
           <Route path="nguoi-ban/tong-quan" element={<SellerDashboard />} />
           <Route path="nguoi-ban/san-pham" element={<SellerProducts />} />
+          <Route path="nguoi-ban/san-pham/them-moi" element={<AddProduct />} />
           <Route path="nguoi-ban/don-hang" element={<SellerOrders />} />
           <Route path="nguoi-ban/vi" element={<SellerWallet />} />
         </Route>
@@ -72,6 +78,8 @@ function App() {
           <Route path="quan-tri/khieu-nai" element={<AdminComplaints />} />
           <Route path="quan-tri/rut-tien" element={<AdminWithdrawals />} />
           <Route path="quan-tri/cai-dat" element={<AdminSettings />} />
+          <Route path="quan-tri/san-pham/:productId/chinh-sua" element={<EditProductAdmin />} />
+          <Route path="quan-tri/don-hang/:orderId" element={<AdminOrderDetail />} />
         </Route>
       </Route>
     </Routes>
