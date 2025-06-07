@@ -283,3 +283,22 @@ exports.validateProductStatusUpdate = [
         next();
     }
 ];
+
+exports.validateProductUpdate = [
+    // Các quy tắc khác tương tự nhưng đều là optional
+    body('name').optional().notEmpty().withMessage('Tên sản phẩm không được để trống')
+        .isLength({ min: 5 }).withMessage('Tên sản phẩm phải có ít nhất 5 ký tự'),
+    body('price').optional().isNumeric().withMessage('Giá sản phẩm phải là số')
+        .custom(value => parseFloat(value) > 0).withMessage('Giá sản phẩm phải lớn hơn 0'),
+    body('category_id').optional().isInt({ gt: 0 }).withMessage('ID danh mục không hợp lệ'),
+    // Quan trọng: product_data là không bắt buộc khi cập nhật
+    body('product_data').optional().notEmpty().withMessage('Nội dung sản phẩm không được để trống nếu được cung cấp'),
+
+    (req, res, next) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ errors: errors.array() });
+        }
+        next();
+    }
+];

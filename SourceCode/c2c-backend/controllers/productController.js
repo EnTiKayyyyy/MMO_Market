@@ -1,6 +1,7 @@
 const { Product, User, Category } = require('../models'); // Lấy từ models/index.js
 const { Op } = require('sequelize'); // Để dùng các toán tử của Sequelize
-
+const fs = require('fs'); // THÊM DÒNG NÀY
+const path = require('path'); // THÊM DÒNG NÀY
 // @desc    Tạo sản phẩm mới
 exports.createProduct = async (req, res) => {
     try {
@@ -167,46 +168,69 @@ exports.getProductById = async (req, res) => {
     }
 };
 
-// @desc    Cập nhật sản phẩm
+// @desc    Cập nhật sản phẩm (Bởi Seller hoặc Admin)
 exports.updateProduct = async (req, res) => {
+    const { id } = req.params;
+    const { name, description, price, category_id, product_data } = req.body;
+
     try {
-        const product = await Product.findByPk(req.params.id);
+        const product = await Product.findByPk(id);
         if (!product) {
+            if (req.file) fs.unlinkSync(req.file.path);
             return res.status(404).json({ message: 'Sản phẩm không tìm thấy.' });
         }
 
-        // Kiểm tra quyền: chỉ chủ sở hữu hoặc admin mới được sửa
         if (product.seller_id !== req.user.id && req.user.role !== 'admin') {
+            if (req.file) fs.unlinkSync(req.file.path);
             return res.status(403).json({ message: 'Bạn không có quyền cập nhật sản phẩm này.' });
         }
 
-        const { name, description, price, category_id, product_data, status } = req.body;
-
-        // Admin có thể thay đổi status, seller thì không (hoặc chuyển về pending_approval)
-        let newStatus = product.status;
-        if (req.user.role === 'admin' && status) {
-            newStatus = status;
-        } else if (req.user.role === 'seller' && product.status !== 'pending_approval') {
-            // Khi seller sửa, có thể bạn muốn chuyển lại thành 'pending_approval'
-            // newStatus = 'pending_approval';
+        product.name = name || product.name;
+        product.description = description || product.description;
+        product.price = price || product.price;
+        product.category_id = category_id || product.category_id;
+        
+        if (product_data) {
+            product.product_data = product_data;
         }
 
+        if (req.file) {
+            const oldThumbnail = product.thumbnail_url;
+            product.thumbnail_url = `/uploads/products/${req.file.filename}`;
 
-        await product.update({
-            name: name || product.name,
-            description: description || product.description,
-            price: price || product.price,
-            category_id: category_id || product.category_id,
-            product_data: product_data || product.product_data,
-            status: newStatus
+            if (oldThumbnail) {
+                // Sử dụng __dirname để có đường dẫn tuyệt đối đến thư mục hiện tại
+                const oldPath = path.join(__dirname, '..', oldThumbnail);
+                if (fs.existsSync(oldPath)) {
+                    fs.unlinkSync(oldPath);
+                }
+            }
+        }
+        
+        if (req.user.role === 'seller') {
+            product.status = 'pending_approval';
+        }
+
+        await product.save();
+        
+        res.json({ 
+            message: 'Sản phẩm đã được cập nhật và đang chờ duyệt lại.', 
+            product 
         });
 
-        res.json({ message: 'Sản phẩm đã được cập nhật.', product });
     } catch (error) {
-        console.error(error);
+        if (req.file) {
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (unlinkErr) {
+                console.error("Lỗi khi xóa file upload thất bại:", unlinkErr);
+            }
+        }
+        console.error("Lỗi khi cập nhật sản phẩm:", error);
         res.status(500).json({ message: 'Lỗi server khi cập nhật sản phẩm.', error: error.message });
     }
 };
+
 
 // @desc    Xóa sản phẩm
 exports.deleteProduct = async (req, res) => {

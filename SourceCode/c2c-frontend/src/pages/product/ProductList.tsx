@@ -19,7 +19,6 @@ const ProductList = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   
-  // Khởi tạo state của bộ lọc từ các tham số trên URL
   const [filter, setFilter] = useState<ProductFilter>({
     category: searchParams.get('category') ? Number(searchParams.get('category')) : undefined,
     minPrice: searchParams.get('minPrice') ? Number(searchParams.get('minPrice')) : undefined,
@@ -27,10 +26,9 @@ const ProductList = () => {
     search: searchParams.get('q') || undefined,
     sort: (searchParams.get('sort') as ProductFilter['sort']) || 'newest',
     page: searchParams.get('page') ? Number(searchParams.get('page')) : 1,
-    limit: 12, // Số sản phẩm trên mỗi trang
+    limit: 12,
   });
   
-  // Tải danh sách danh mục chỉ một lần khi component được mount
   useEffect(() => {
     const fetchCategories = async () => {
         try {
@@ -43,7 +41,6 @@ const ProductList = () => {
     fetchCategories();
   }, []);
 
-  // Tải danh sách sản phẩm mỗi khi bộ lọc thay đổi
   useEffect(() => {
     const fetchProducts = async () => {
       setIsLoading(true);
@@ -58,12 +55,10 @@ const ProductList = () => {
       }
     };
     
-    // Sử dụng debounce để tránh gọi API liên tục khi người dùng gõ tìm kiếm
     const debounceTimeout = setTimeout(() => {
         fetchProducts();
     }, 300);
 
-    // Đồng bộ trạng thái bộ lọc lên URL
     const newSearchParams = new URLSearchParams();
     if (filter.category) newSearchParams.set('category', filter.category.toString());
     if (filter.minPrice) newSearchParams.set('minPrice', filter.minPrice.toString());
@@ -80,15 +75,23 @@ const ProductList = () => {
     setFilter((prev) => ({
       ...prev,
       ...newFilter,
-      page: 1, // Reset về trang 1 khi áp dụng bộ lọc mới
+      page: 1, 
     }));
   };
+
+  // --- SỬA LỖI: Tạo hàm riêng để xử lý chuyển trang ---
+  const handlePageChange = (newPage: number) => {
+    setFilter(prev => ({
+      ...prev,
+      page: newPage
+    }));
+  };
+  // --- KẾT THÚC SỬA LỖI ---
 
   const clearFilters = () => {
     setFilter({ sort: 'newest', page: 1, limit: 12 });
   };
   
-  // Component skeleton để hiển thị khi đang tải
   const ProductSkeleton = () => (
     <div className="bg-white rounded-lg shadow-custom p-4 animate-pulse">
       <div className="w-full h-40 bg-gray-200 rounded-md mb-4"></div>
@@ -139,9 +142,11 @@ const ProductList = () => {
       
       {totalPages > 1 && (
         <div className="mt-8 flex justify-center"><nav className="flex items-center space-x-2">
-            <button onClick={() => handleFilterChange({ page: Math.max(1, filter.page! - 1) })} disabled={filter.page === 1} className="px-3 py-2 rounded-md disabled:text-gray-400 disabled:cursor-not-allowed text-gray-700 hover:bg-gray-100">Trước</button>
-            {[...Array(totalPages)].map((_, i) => (<button key={i} onClick={() => handleFilterChange({ page: i + 1 })} className={`px-4 py-2 rounded-md ${filter.page === i + 1 ? 'bg-primary-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>{i + 1}</button>))}
-            <button onClick={() => handleFilterChange({ page: Math.min(totalPages, filter.page! + 1) })} disabled={filter.page === totalPages} className="px-3 py-2 rounded-md disabled:text-gray-400 disabled:cursor-not-allowed text-gray-700 hover:bg-gray-100">Tiếp</button>
+            {/* --- SỬA LỖI: Gọi hàm handlePageChange --- */}
+            <button onClick={() => handlePageChange(Math.max(1, filter.page! - 1))} disabled={filter.page === 1} className="px-3 py-2 rounded-md disabled:text-gray-400 disabled:cursor-not-allowed text-gray-700 hover:bg-gray-100">Trước</button>
+            {[...Array(totalPages)].map((_, i) => (<button key={i} onClick={() => handlePageChange(i + 1)} className={`px-4 py-2 rounded-md ${filter.page === i + 1 ? 'bg-primary-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>{i + 1}</button>))}
+            <button onClick={() => handlePageChange(Math.min(totalPages, filter.page! + 1))} disabled={filter.page === totalPages} className="px-3 py-2 rounded-md disabled:text-gray-400 disabled:cursor-not-allowed text-gray-700 hover:bg-gray-100">Tiếp</button>
+            {/* --- KẾT THÚC SỬA LỖI --- */}
         </nav></div>
       )}
     </div>

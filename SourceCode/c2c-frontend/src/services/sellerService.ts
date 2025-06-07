@@ -117,5 +117,19 @@ export const createPayoutRequest = async (amount: number, payoutInfo: object) =>
     return response.data;
 };
 
+/**
+ * Cập nhật một sản phẩm hiện có.
+ * @param productId ID của sản phẩm cần cập nhật
+ * @param data Dữ liệu FormData chứa thông tin cập nhật
+ */
+export const updateProduct = async (productId: string, data: FormData) => {
+    const response = await api.put(`/products/${productId}`, data, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+    });
+    return response.data;
+};
+
 export const getSellerDashboardStats = () => api.get('/dashboard/seller');
 

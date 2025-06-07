@@ -31,6 +31,7 @@ import AddProduct from './pages/seller/AddProduct';
 import EditProductAdmin from './pages/admin/EditProduct';
 import AdminOrderDetail from './pages/admin/AdminOrderDetail';
 import PaymentStatus from './pages/checkout/PaymentStatus';
+import EditProduct from './pages/seller/EditProduct';
 // import PaymentQR from './pages/checkout/PaymentQR'; 
 
 function App() {
@@ -68,6 +69,7 @@ function App() {
           <Route path="nguoi-ban/san-pham/them-moi" element={<AddProduct />} />
           <Route path="nguoi-ban/don-hang" element={<SellerOrders />} />
           <Route path="nguoi-ban/vi" element={<SellerWallet />} />
+          <Route path="nguoi-ban/san-pham/:id/chinh-sua" element={<EditProduct />} />
           <Route path="nguoi-ban/don-hang/:id" element={<SellerOrderDetail />} />
         </Route>
 

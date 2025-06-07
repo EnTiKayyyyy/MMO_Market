@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
-const { validateProduct } = require('../middlewares/validationMiddleware');
+const { validateProduct, validateProductUpdate } = require('../middlewares/validationMiddleware');
 const { uploadProductImage } = require('../middlewares/uploadMiddleware'); // Đảm bảo middleware này đã được tạo và cấu hình đúng
 
 // @route   POST /api/products
@@ -35,19 +35,11 @@ router.put(
     '/:id',
     protect,
     authorize('seller', 'admin'),
-    uploadProductImage.single('productImage'), // Thêm nếu PUT cũng cho phép cập nhật ảnh
-    validateProduct,
+    uploadProductImage.single('productImage'),
+    validateProductUpdate,
     productController.updateProduct
 );
 
-// @route   DELETE /api/products/:id
-// @desc    Xóa sản phẩm
-// @access  Private (Owner or Admin)
-router.get('/', productController.getAllProducts);
-router.get('/:id', productController.getProductById);
-router.put('/:id', protect, authorize('seller', 'admin'), uploadProductImage.single('productImage'), validateProduct, productController.updateProduct);
 router.delete('/:id', protect, authorize('seller', 'admin'), productController.deleteProduct);
-// BỎ DÒNG NÀY VÌ ĐÃ CÓ Ở TRÊN
-// router.post('/', protect, authorize('seller', 'admin'), upload.single('productImage'), validateProduct, productController.createProduct);
     
 module.exports = router;
