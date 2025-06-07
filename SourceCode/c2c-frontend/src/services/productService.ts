@@ -2,6 +2,8 @@ import api from '../api';
 import { Product, ProductFilter } from '../types/product';
 const API_URL = 'http://localhost:3000';
 // Hàm chuyển đổi dữ liệu từ backend sang định dạng Product của frontend
+const getRandomRating = () => parseFloat((Math.random() * (5 - 3) + 3).toFixed(1));
+const getRandomSold = () => parseInt((Math.random() * (5 - 3) + 3).toFixed(1));
 const mapProductFromApi = (apiProduct: any): Product => {
   return {
     id: apiProduct.id.toString(),
@@ -21,8 +23,8 @@ const mapProductFromApi = (apiProduct: any): Product => {
       rating: 4.5, // Backend chưa có rating, tạm để giá trị giả
     },
     inStock: apiProduct.status === 'available' ? 100 : 0, // Giả lập số lượng tồn kho
-    sold: 0, // Backend chưa có trường này
-    rating: 4.5, // Backend chưa có trường này
+    sold: getRandomSold(), // Backend chưa có trường này
+    rating: getRandomRating(), // Backend chưa có trường này
     createdAt: apiProduct.createdAt,
     status: apiProduct.status,
   };
