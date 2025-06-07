@@ -13,6 +13,7 @@ import BuyerWallet from './pages/profile/BuyerWallet';
 import SellerDashboard from './pages/seller/SellerDashboard';
 import SellerProducts from './pages/seller/SellerProducts';
 import SellerOrders from './pages/seller/SellerOrders';
+import SellerOrderDetail from './pages/seller/SellerOrderDetail';
 import SellerWallet from './pages/seller/SellerWallet';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminProducts from './pages/admin/AdminProducts';
@@ -23,12 +24,13 @@ import AdminSettings from './pages/admin/AdminSettings';
 import NotFound from './pages/NotFound';
 import OrderHistory from './pages/orders/OrderHistory';
 import OrderDetail from './pages/orders/OrderDetail';
-import Messages from './pages/messages/Messages';
+// import Messages from './pages/messages/Messages';
 import { useAuthStore } from './stores/authStore';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import AddProduct from './pages/seller/AddProduct';
 import EditProductAdmin from './pages/admin/EditProduct';
 import AdminOrderDetail from './pages/admin/AdminOrderDetail';
+// import PaymentQR from './pages/checkout/PaymentQR'; 
 
 function App() {
   const { initAuth } = useAuthStore();
@@ -53,11 +55,12 @@ function App() {
         {/* Buyer protected routes */}
         <Route element={<ProtectedRoute role="buyer" />}>
           <Route path="thanh-toan" element={<Checkout />} />
+          {/* <Route path="thanh-toan-qr/:orderId" element={<PaymentQR />} /> */}
           <Route path="tai-khoan" element={<BuyerProfile />} />
           <Route path="vi" element={<BuyerWallet />} />
           <Route path="don-hang" element={<OrderHistory />} />
           <Route path="don-hang/:id" element={<OrderDetail />} />
-          <Route path="tin-nhan" element={<Messages />} />
+          {/* <Route path="tin-nhan" element={<Messages />} /> */}
           
         </Route>
 
@@ -68,6 +71,7 @@ function App() {
           <Route path="nguoi-ban/san-pham/them-moi" element={<AddProduct />} />
           <Route path="nguoi-ban/don-hang" element={<SellerOrders />} />
           <Route path="nguoi-ban/vi" element={<SellerWallet />} />
+          <Route path="nguoi-ban/don-hang/:id" element={<SellerOrderDetail />} />
         </Route>
 
         {/* Admin protected routes */}

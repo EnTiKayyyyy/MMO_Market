@@ -53,16 +53,21 @@ const SellerOrders = () => {
     return statusMap[status] || 'Không xác định';
   };
   
+  // Lọc đơn hàng dựa trên ô tìm kiếm và dropdown trạng thái
   const filteredOrders = orders.filter(order =>
     (filter.status === '' || order.status === filter.status) &&
-    (order.id.toString().includes(filter.search) || order.buyer.full_name.toLowerCase().includes(filter.search.toLowerCase()))
+    (
+        order.id.toString().includes(filter.search) || 
+        order.buyer.full_name.toLowerCase().includes(filter.search.toLowerCase()) ||
+        order.items.some(item => item.product.name.toLowerCase().includes(filter.search.toLowerCase()))
+    )
   );
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Quản lý đơn hàng</h1>
-        <p className="text-gray-600 mt-1">Xem và quản lý các đơn hàng của bạn</p>
+        <p className="text-gray-600 mt-1">Xem và quản lý các đơn hàng chứa sản phẩm của bạn.</p>
       </div>
 
       <div className="bg-white rounded-lg shadow-custom p-4 mb-6">
@@ -70,7 +75,7 @@ const SellerOrders = () => {
           <div className="relative">
             <input
               type="text"
-              placeholder="Tìm theo Mã đơn hàng hoặc Tên người mua..."
+              placeholder="Tìm theo Mã ĐH, Tên người mua, Tên sản phẩm..."
               value={filter.search}
               onChange={(e) => setFilter(prev => ({ ...prev, search: e.target.value }))}
               className="input pl-10"
@@ -92,7 +97,7 @@ const SellerOrders = () => {
               <option value="cancelled">Đã hủy</option>
               <option value="disputed">Đang khiếu nại</option>
             </select>
-            <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+            <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" size={20} />
           </div>
         </div>
       </div>
@@ -120,15 +125,16 @@ const SellerOrders = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDateTime(order.createdAt)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">{order.buyer.full_name}</div>
-                        <div className="text-sm text-gray-500">{order.buyer.username}</div>
+                        <div className="text-sm text-gray-500">@{order.buyer.username}</div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{order.items.map(item => item.product_name).join(', ')}</td>
+                    <td className="px-6 py-4 text-sm text-gray-900">{order.items.map(item => item.product.name).join(', ')}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(order.status)}`}>
                         {getStatusText(order.status)}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      {/* Liên kết đến trang chi tiết đơn hàng (cần tạo nếu chưa có) */}
                       <Link to={`/nguoi-ban/don-hang/${order.id}`} className="text-primary-600 hover:text-primary-900">Chi tiết</Link>
                     </td>
                   </tr>
@@ -141,7 +147,7 @@ const SellerOrders = () => {
         <div className="text-center py-12 bg-white rounded-lg shadow-custom">
           <Package className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-medium text-gray-900">Không có đơn hàng nào</h3>
-          <p className="mt-1 text-sm text-gray-500">Bạn chưa có đơn hàng nào.</p>
+          <p className="mt-1 text-sm text-gray-500">Khi có khách hàng mua sản phẩm của bạn, đơn hàng sẽ xuất hiện ở đây.</p>
         </div>
       )}
     </div>

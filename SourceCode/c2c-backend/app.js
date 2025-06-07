@@ -1,10 +1,13 @@
 // app.js
 const express = require('express');
+const http = require('http'); // Import module http
+const { Server } = require("socket.io"); // Import Server từ socket.io
 const cors = require('cors');
 // Chỉ cần import db từ models, nó đã chứa sequelize instance và các models
 const db = require('./models'); // Đảm bảo models/index.js export db đúng cách
 require('dotenv').config();
 const path = require('path');
+const jwt = require('jsonwebtoken');
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
@@ -21,8 +24,22 @@ const adminProductRoutes = require('./routes/adminProductRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
+const webhookRoutes = require('./routes/webhookRoutes');
 
 const app = express();
+const server = http.createServer(app);
+
+const io = new Server(server, {
+    cors: {
+        origin: "http://localhost:5173", // URL của frontend
+        methods: ["GET", "POST"]
+    }
+});
+
+app.use((req, res, next) => {
+    req.io = io;
+    next();
+});
 
 // Middlewares
 app.use(cors()); // Cho phép Cross-Origin Resource Sharing
@@ -46,11 +63,56 @@ app.use('/api/admin/products', adminProductRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 // Error Handling Middleware (đơn giản)
 app.use((err, req, res, next) => {
     console.error(err.stack);
     res.status(500).send('Đã có lỗi xảy ra!');
+});
+
+io.on('connection', (socket) => {
+    console.log(`Một người dùng đã kết nối: ${socket.id}`);
+
+    // Tham gia một "phòng" riêng tư dựa trên ID người dùng
+    // Frontend sẽ gửi event 'joinRoom' sau khi kết nối
+    socket.on('joinRoom', (userId) => {
+        socket.join(`user_${userId}`);
+        console.log(`User ${userId} đã tham gia phòng user_${userId}`);
+    });
+
+    // Lắng nghe sự kiện gửi tin nhắn riêng tư từ client
+    socket.on('privateMessage', async (data) => {
+        const { sender_id, receiver_id, content } = data;
+        
+        try {
+            // 1. Lưu tin nhắn vào cơ sở dữ liệu
+            const newMessage = await db.Message.create({
+                sender_id,
+                receiver_id,
+                content
+            });
+
+            // Lấy thông tin chi tiết của tin nhắn vừa tạo để gửi đi
+            const messageDetail = await db.Message.findByPk(newMessage.id, {
+                include: [
+                    { model: db.User, as: 'sender', attributes: ['id', 'username', 'avatar_url'] },
+                ]
+            });
+
+            // 2. Gửi tin nhắn real-time đến cả người gửi và người nhận
+            io.to(`user_${receiver_id}`).to(`user_${sender_id}`).emit('newMessage', messageDetail);
+
+        } catch (error) {
+            console.error("Lỗi khi xử lý tin nhắn private:", error);
+            // Có thể emit một event lỗi về cho người gửi
+            socket.emit('messageError', { message: "Không thể gửi tin nhắn." });
+        }
+    });
+
+    socket.on('disconnect', () => {
+        console.log(`Người dùng đã ngắt kết nối: ${socket.id}`);
+    });
 });
 
 // Đồng bộ CSDL và khởi chạy server

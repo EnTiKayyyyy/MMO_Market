@@ -4,6 +4,7 @@ import Footer from './Footer';
 import MobileNav from './MobileNav';
 import { useAuthStore } from '../../stores/authStore';
 import { useEffect, useState } from 'react';
+// import ChatWidget from '../chat/ChatWidget';
 
 const Layout = () => {
   const { user } = useAuthStore();

@@ -1,7 +1,7 @@
 const { Order, OrderItem, Product, User, SellerWallet, Transaction, sequelize } = require('../models'); // Lấy từ models/index.js
 const { Op } = require('sequelize');
 const { createNotification } = require('../services/notificationService');
-
+const qrcode = require('qrcode');
 require('dotenv').config();
 
 const COMMISSION_RATE = parseFloat(process.env.COMMISSION_RATE) || 0.05; // 5% phí sàn
@@ -684,5 +684,84 @@ exports.updateOrderStatusAdmin = async (req, res) => {
         await t.rollback();
         console.error('Lỗi khi cập nhật trạng thái đơn hàng:', error);
         res.status(500).json({ message: 'Lỗi server.', error: error.message });
+    }
+};
+
+/**
+ * @desc    Tạo mã QR code để thanh toán cho một đơn hàng cụ thể
+ * @route   GET /api/orders/:orderId/generate-payment-qr
+ * @access  Private/Buyer
+ */
+exports.generateOrderPaymentQrCode = async (req, res) => {
+    try {
+        const { orderId } = req.params;
+        const buyerId = req.user.id;
+
+        const order = await Order.findByPk(orderId);
+
+        if (!order) {
+            return res.status(404).json({ message: 'Không tìm thấy đơn hàng.' });
+        }
+        if (order.buyer_id !== buyerId) {
+            return res.status(403).json({ message: 'Bạn không có quyền truy cập đơn hàng này.' });
+        }
+        if (order.status !== 'pending') {
+            return res.status(400).json({ message: `Đơn hàng này đã được xử lý (trạng thái: ${order.status}).` });
+        }
+
+        const bankId = process.env.BANK_ID;
+        const accountNumber = process.env.BANK_ACCOUNT_NUMBER;
+        const accountName = process.env.BANK_ACCOUNT_NAME;
+
+        if (!bankId || !accountNumber) {
+            return res.status(500).json({ message: 'Lỗi hệ thống: Thông tin thanh toán chưa được cấu hình.' });
+        }
+        
+        const amount = order.total_amount;
+        const description = `Thanh toan don hang ${order.id}`;
+        const qrString = `https://img.vietqr.io/image/${bankId}-${accountNumber}-print.png?amount=${amount}&addInfo=${encodeURIComponent(description)}&accountName=${encodeURIComponent(accountName)}`;
+        
+        res.json({
+            qrImageUrl: qrString,
+            orderId: order.id,
+            amount: parseFloat(amount),
+            description
+        });
+
+    } catch (error) {
+        console.error('Lỗi khi tạo mã QR cho đơn hàng:', error);
+        res.status(500).json({ message: 'Lỗi hệ thống khi tạo mã QR.' });
+    }
+};
+
+exports.getSellerOrders = async (req, res) => {
+    try {
+        // Lấy ID của người bán đang đăng nhập
+        const sellerId = req.user.id;
+
+        // Tìm tất cả các đơn hàng có chứa ít nhất một sản phẩm của người bán này
+        const orders = await Order.findAll({
+            include: [{
+                model: OrderItem,
+                as: 'items',
+                where: { seller_id: sellerId }, // Điều kiện quan trọng: chỉ lấy item của seller
+                required: true, // INNER JOIN để đảm bảo chỉ trả về các Order có item của seller
+                include: [{
+                    model: Product,
+                    as: 'product',
+                    attributes: ['id', 'name', 'thumbnail_url']
+                }]
+            }, {
+                model: User,
+                as: 'buyer', // Lấy thông tin người mua
+                attributes: ['id', 'username', 'full_name']
+            }],
+            order: [['createdAt', 'DESC']] // Sắp xếp theo đơn hàng mới nhất
+        });
+        
+        res.json(orders);
+    } catch (error) {
+        console.error('Lỗi lấy đơn hàng của người bán:', error);
+        res.status(500).json({ message: 'Lỗi máy chủ khi truy vấn đơn hàng.', error: error.message });
     }
 };

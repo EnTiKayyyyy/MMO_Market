@@ -13,12 +13,12 @@ router.get('/wallet/my', protect, authorize('seller'), walletPayoutController.ge
 // @route   POST /api/payouts/request
 // @desc    Người bán tạo yêu cầu rút tiền mới
 // @access  Private (Seller)
-router.post('/payouts/request', protect, authorize('seller'), validatePayoutRequest, walletPayoutController.createPayoutRequest);
+router.post('/request', protect, authorize('seller'), validatePayoutRequest, walletPayoutController.createPayoutRequest);
 
 // @route   GET /api/payouts/my-requests
 // @desc    Người bán xem lịch sử yêu cầu rút tiền của mình
 // @access  Private (Seller)
-router.get('/payouts/my-requests', protect, authorize('seller'), walletPayoutController.getMyPayoutRequests);
+router.get('/my-requests', protect, authorize('seller'), walletPayoutController.getMyPayoutRequests);
 
 // ==== ADMIN ROUTES ====
 // @route   GET /api/payouts

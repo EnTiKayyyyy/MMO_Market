@@ -1,19 +1,28 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react'; // SỬA ĐỔI: Thêm useEffect
 import { useNavigate } from 'react-router-dom';
-import { CreditCard, Wallet, AlertCircle } from 'lucide-react';
+import { CreditCard, Wallet, Loader2 } from 'lucide-react'; // SỬA ĐỔI: Thêm Loader2
 import { formatCurrency } from '../../utils/format';
 import { useCartStore } from '../../stores/cartStore';
 import { createOrder } from '../../services/orderService';
+import { useWalletStore } from '../../stores/walletStore'; // SỬA ĐỔI: Import store quản lý ví
 
-// URL của backend để ghép nối với đường dẫn ảnh
 const API_URL = 'http://localhost:3000';
 
 const Checkout = () => {
   const navigate = useNavigate();
   const { items, getTotal, clearCart } = useCartStore();
+  
+  // SỬA ĐỔI: Lấy state và actions từ walletStore
+  const { balance: walletBalance, isLoading: isWalletLoading, fetchWalletData } = useWalletStore();
+
   const [paymentMethod, setPaymentMethod] = useState<'wallet' | 'bank'>('wallet');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // SỬA ĐỔI: Sử dụng useEffect để tải dữ liệu ví khi component được render
+  useEffect(() => {
+    fetchWalletData();
+  }, [fetchWalletData]);
   
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,11 +30,16 @@ const Checkout = () => {
         setError('Giỏ hàng của bạn đang trống.');
         return;
     }
+    
+    // Kiểm tra nếu thanh toán bằng ví nhưng số dư không đủ
+    if (paymentMethod === 'wallet' && walletBalance < getTotal()) {
+      setError('Số dư ví không đủ để thực hiện thanh toán. Vui lòng nạp thêm hoặc chọn phương thức khác.');
+      return;
+    }
 
-    setIsLoading(true);
+    setIsSubmitting(true);
     setError(null);
     
-    // Chuẩn bị dữ liệu để gửi lên API
     const orderItems = items.map(item => ({
       product_id: parseInt(item.product.id, 10),
       quantity: item.quantity,
@@ -37,11 +51,10 @@ const Checkout = () => {
       alert('Đặt hàng thành công!');
       navigate(`/don-hang/${newOrderData.order.id}`);
     } catch (err: any) {
-      console.error('Lỗi khi thanh toán:', err);
       const errorMessage = err.response?.data?.message || 'Đã có lỗi xảy ra. Vui lòng thử lại.';
       setError(errorMessage);
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -50,32 +63,23 @@ const Checkout = () => {
       <h1 className="text-2xl font-bold mb-6">Thanh toán</h1>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* Order Summary - Phần tóm tắt đơn hàng */}
+        {/* Order Summary */}
         <div className="bg-white rounded-lg shadow-custom p-6 h-fit">
           <h2 className="text-lg font-semibold mb-4">Thông tin đơn hàng</h2>
           
           <div className="space-y-4 mb-6">
             {items.map(item => {
-              // SỬA LỖI: Xây dựng URL hình ảnh đầy đủ
               const imageUrl = item.product.thumbnail_url
                 ? `${API_URL}${item.product.thumbnail_url}`
                 : 'https://via.placeholder.com/150?text=No+Image';
 
               return (
                 <div key={item.product.id} className="flex justify-between items-center">
-                  {/* THÊM MỚI: Thẻ img để hiển thị ảnh */}
-                  <img 
-                    src={imageUrl} 
-                    alt={item.product.name} 
-                    className="w-16 h-16 rounded-md object-cover mr-4 border"
-                    onError={(e) => { e.currentTarget.src = 'https://via.placeholder.com/150?text=Error'; }}
-                  />
-                  
+                  <img src={imageUrl} alt={item.product.name} className="w-16 h-16 rounded-md object-cover mr-4 border" onError={(e) => { e.currentTarget.src = 'https://via.placeholder.com/150?text=Error'; }}/>
                   <div className="flex-grow">
                     <p className="font-medium line-clamp-2">{item.product.name}</p>
                     <p className="text-sm text-gray-500">Số lượng: {item.quantity}</p>
                   </div>
-
                   <p className="font-medium pl-4">{formatCurrency(item.product.price * item.quantity)}</p>
                 </div>
               );
@@ -90,7 +94,7 @@ const Checkout = () => {
           </div>
         </div>
         
-        {/* Payment Method - Phần chọn phương thức thanh toán */}
+        {/* Payment Method */}
         <div>
           <form onSubmit={handleCheckout} className="bg-white rounded-lg shadow-custom p-6">
             <h2 className="text-lg font-semibold mb-4">Phương thức thanh toán</h2>
@@ -114,8 +118,17 @@ const Checkout = () => {
                   <div className="flex items-center">
                     <Wallet size={20} className="text-primary-600 mr-2" />
                     <div>
-                      <p className="font-medium">Ví SànThueKD</p>
-                      <p className="text-sm text-gray-500">Thanh toán nhanh và an toàn</p>
+                      <p className="font-medium">Ví của bạn</p>
+                      {/* SỬA ĐỔI: Hiển thị số dư thực tế */}
+                      <p className="text-sm text-gray-500">
+                        {isWalletLoading ? (
+                          <span className="flex items-center">
+                            <Loader2 size={14} className="animate-spin mr-1" /> Đang tải số dư...
+                          </span>
+                        ) : (
+                          `Số dư: ${formatCurrency(walletBalance)}`
+                        )}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -130,14 +143,11 @@ const Checkout = () => {
             
             <button
               type="submit"
-              disabled={isLoading || items.length === 0}
+              disabled={isSubmitting || items.length === 0}
               className="w-full btn btn-primary py-3 flex items-center justify-center disabled:opacity-50"
             >
-              {isLoading ? (
-                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
+              {isSubmitting ? (
+                <Loader2 size={20} className="animate-spin" />
               ) : (
                 <>
                   <CreditCard size={20} className="mr-2" />

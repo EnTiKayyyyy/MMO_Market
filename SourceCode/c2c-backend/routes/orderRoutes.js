@@ -63,4 +63,11 @@ router.get(
     authorize('buyer', 'admin'), // Cho phép cả admin xem để hỗ trợ
     orderController.getOrderItemProductDataForBuyer
 );
+
+// @route   GET /api/orders/seller
+// @desc    Lấy danh sách đơn hàng liên quan đến sản phẩm của người bán hiện tại
+// @access  Private (Seller)
+router.get('/seller', protect, authorize('seller'), orderController.getSellerOrders);
+
+
 module.exports = router;

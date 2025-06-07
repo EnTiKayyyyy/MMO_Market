@@ -81,3 +81,89 @@ exports.createDepositPaymentUrl = async (req, res) => {
         res.status(500).json({ message: 'Lỗi server.', error: error.message });
     }
 };
+
+/**
+ * @desc    Tạo mã QR code (dưới dạng data URL) để nạp tiền vào ví
+ * @route   POST /api/wallet/generate-deposit-qr
+ * @access  Private
+ */
+exports.generateDepositQrCode = async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { amount } = req.body;
+    const userId = req.user.id;
+    const dbTransaction = await sequelize.transaction();
+
+    try {
+        // 1. Tạo một giao dịch 'deposit' đang ở trạng thái 'pending'
+        const depositTransaction = await Transaction.create({
+            user_id: userId,
+            type: 'deposit',
+            amount: parseFloat(amount),
+            status: 'pending',
+            notes: 'Khởi tạo yêu cầu nạp tiền qua VietQR.',
+        }, { transaction: dbTransaction });
+
+        await dbTransaction.commit();
+
+        // 2. Lấy thông tin tài khoản ngân hàng từ .env
+        const bankId = process.env.BANK_ID;
+        const accountNumber = process.env.BANK_ACCOUNT_NUMBER;
+        const accountName = process.env.BANK_ACCOUNT_NAME;
+
+        if (!bankId || !accountNumber) {
+            console.error("Lỗi cấu hình: Thiếu thông tin tài khoản ngân hàng trong file .env");
+            return res.status(500).json({ message: 'Lỗi hệ thống: Không thể tạo mã QR.' });
+        }
+
+        // 3. Tạo chuỗi QR theo chuẩn VietQR
+        // Nội dung chuyển khoản sẽ là mã giao dịch để admin đối soát
+        const description = `Nap tien giao dich ${depositTransaction.id}`;
+        const qrString = `https://img.vietqr.io/image/${bankId}-${accountNumber}-print.png?amount=${amount}&addInfo=${encodeURIComponent(description)}&accountName=${encodeURIComponent(accountName)}`;
+
+        // 4. Trả về thông tin cho frontend
+        res.json({
+            qrImageUrl: qrString, // Trả về URL ảnh QR được generate bởi VietQR
+            transactionId: depositTransaction.id,
+            amount: parseFloat(amount),
+            description,
+        });
+
+    } catch (error) {
+        if (dbTransaction) await dbTransaction.rollback();
+        console.error('Lỗi khi tạo mã QR nạp tiền:', error);
+        res.status(500).json({ message: 'Lỗi hệ thống khi tạo yêu cầu nạp tiền.' });
+    }
+};
+
+/**
+ * @desc    Kiểm tra trạng thái của một giao dịch nạp tiền cụ thể
+ * @route   GET /api/wallet/deposit-status/:transactionId
+ * @access  Private
+ */
+exports.getDepositStatus = async (req, res) => {
+    try {
+        const { transactionId } = req.params;
+        const userId = req.user.id;
+
+        const depositTx = await Transaction.findOne({
+            where: {
+                id: transactionId,
+                user_id: userId, // Chỉ cho phép user kiểm tra giao dịch của chính mình
+                type: 'deposit'
+            }
+        });
+
+        if (!depositTx) {
+            return res.status(404).json({ message: 'Không tìm thấy giao dịch.' });
+        }
+
+        res.json({ status: depositTx.status });
+
+    } catch (error) {
+        res.status(500).json({ message: 'Lỗi hệ thống.' });
+    }
+};
