@@ -30,6 +30,7 @@ import ProtectedRoute from './components/auth/ProtectedRoute';
 import AddProduct from './pages/seller/AddProduct';
 import EditProductAdmin from './pages/admin/EditProduct';
 import AdminOrderDetail from './pages/admin/AdminOrderDetail';
+import PaymentStatus from './pages/checkout/PaymentStatus';
 // import PaymentQR from './pages/checkout/PaymentQR'; 
 
 function App() {
@@ -48,6 +49,7 @@ function App() {
         <Route path="gio-hang" element={<Cart />} />
         <Route path="dang-nhap" element={<Login />} />
         <Route path="dang-ky" element={<Register />} />
+        <Route path="vi/payment-status" element={<PaymentStatus />} />
         <Route path="*" element={<NotFound />} />
 
         <Route element={<ProtectedRoute role="buyer" />}>

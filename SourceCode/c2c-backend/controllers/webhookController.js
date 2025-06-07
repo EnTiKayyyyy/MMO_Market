@@ -1,5 +1,6 @@
 const { Wallet, Transaction, sequelize } = require('../models');
-
+const querystring = require('qs');
+const crypto = require("crypto");
 /**
  * @desc    Xử lý xác nhận giao dịch nạp tiền từ VietQR
  * @route   POST /api/webhooks/vietqr-confirm
@@ -71,5 +72,180 @@ exports.confirmVietQRDeposit = async (req, res) => {
         await dbTransaction.rollback();
         console.error(`Lỗi khi xác nhận giao dịch #${transactionId}:`, error);
         res.status(500).json({ message: 'Lỗi hệ thống khi xử lý xác nhận.' });
+    }
+};
+
+/**
+ * @desc    Xử lý VNPay IPN (Instant Payment Notification)
+ * @route   GET /api/webhooks/vnpay-ipn
+ * @access  Public
+ */
+exports.vnpayIpnHandler = async (req, res) => {
+    let vnp_Params = req.query;
+    let secureHash = vnp_Params['vnp_SecureHash'];
+
+    let secretKey = process.env.VNP_HASHSECRET;
+
+    delete vnp_Params['vnp_SecureHash'];
+    delete vnp_Params['vnp_SecureHashType'];
+
+    vnp_Params = Object.keys(vnp_Params).sort().reduce(
+      (obj, key) => { 
+        obj[key] = vnp_Params[key]; 
+        return obj;
+      }, 
+      {}
+    );
+
+    let signData = querystring.stringify(vnp_Params, { encode: true });
+    let hmac = crypto.createHmac("sha512", secretKey);
+    let signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex");
+
+    if (secureHash === signed) {
+        // ... logic xử lý IPN giữ nguyên ...
+        const transactionId = vnp_Params['vnp_TxnRef'];
+        const responseCode = vnp_Params['vnp_ResponseCode'];
+        const amount = parseInt(vnp_Params['vnp_Amount']) / 100;
+
+        const dbTransaction = await sequelize.transaction();
+        try {
+            const depositTx = await Transaction.findOne({
+                where: { id: transactionId, type: 'deposit' },
+                lock: dbTransaction.LOCK.UPDATE,
+                transaction: dbTransaction
+            });
+
+            if (depositTx) {
+                if (depositTx.status === 'pending') {
+                    if (responseCode === '00') {
+                        depositTx.status = 'completed';
+                        depositTx.notes = `Giao dịch VNPay thành công. Mã giao dịch VNP: ${vnp_Params['vnp_TransactionNo']}`;
+                        await depositTx.save({ transaction: dbTransaction });
+                        const userWallet = await Wallet.findOne({
+                            where: { user_id: depositTx.user_id },
+                            lock: dbTransaction.LOCK.UPDATE,
+                            transaction: dbTransaction
+                        });
+                        if (userWallet) {
+                            await userWallet.increment('balance', { by: amount, transaction: dbTransaction });
+                        } else {
+                            await Wallet.create({ user_id: depositTx.user_id, balance: amount }, { transaction: dbTransaction });
+                        }
+                        await dbTransaction.commit();
+                        res.status(200).json({ RspCode: '00', Message: 'Confirm Success' });
+                    } else {
+                        depositTx.status = 'failed';
+                        depositTx.notes = `Giao dịch VNPay thất bại. Mã lỗi: ${responseCode}`;
+                        await depositTx.save({ transaction: dbTransaction });
+                        await dbTransaction.commit();
+                        res.status(200).json({ RspCode: '00', Message: 'Confirm Success' });
+                    }
+                } else {
+                    await dbTransaction.rollback();
+                    res.status(200).json({ RspCode: '02', Message: 'Order already confirmed' });
+                }
+            } else {
+                await dbTransaction.rollback();
+                res.status(200).json({ RspCode: '01', Message: 'Order not found' });
+            }
+        } catch (error) {
+            await dbTransaction.rollback();
+            console.error("Lỗi xử lý IPN:", error);
+            res.status(200).json({ RspCode: '99', Message: 'Unknown error' });
+        }
+    } else {
+        res.status(200).json({ RspCode: '97', Message: 'Invalid Checksum' });
+    }
+};
+
+/**
+ * @desc    Xử lý khi VNPay redirect người dùng về
+ * @route   GET /api/webhooks/vnpay-return
+ * @access  Public
+ */
+exports.vnpayReturnHandler = async (req, res) => {
+    let vnp_Params = req.query;
+    let secureHash = vnp_Params['vnp_SecureHash'];
+
+    delete vnp_Params['vnp_SecureHash'];
+    delete vnp_Params['vnp_SecureHashType'];
+
+    vnp_Params = Object.keys(vnp_Params).sort().reduce(
+      (obj, key) => { 
+        obj[key] = vnp_Params[key]; 
+        return obj;
+      }, 
+      {}
+    );
+
+    let secretKey = process.env.VNP_HASHSECRET;
+    
+    let signData = querystring.stringify(vnp_Params, { encode: true });
+    let hmac = crypto.createHmac("sha512", secretKey);
+
+    let signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex");
+
+    if (secureHash === signed) {
+        const transactionId = vnp_Params['vnp_TxnRef'];
+        const responseCode = vnp_Params['vnp_ResponseCode'];
+        const amount = parseInt(vnp_Params['vnp_Amount']) / 100;
+
+        const dbTransaction = await sequelize.transaction();
+        try {
+            const depositTx = await Transaction.findOne({
+                where: { id: transactionId, type: 'deposit' },
+                lock: dbTransaction.LOCK.UPDATE,
+                transaction: dbTransaction
+            });
+
+            if (depositTx) {
+                if (depositTx.status === 'pending') {
+                    if (responseCode === '00') {
+                        depositTx.status = 'completed';
+                        depositTx.notes = `Giao dịch VNPay thành công. Mã giao dịch VNP: ${vnp_Params['vnp_TransactionNo']}`;
+                        await depositTx.save({ transaction: dbTransaction });
+                        const userWallet = await Wallet.findOne({
+                            where: { user_id: depositTx.user_id },
+                            lock: dbTransaction.LOCK.UPDATE,
+                            transaction: dbTransaction
+                        });
+                        if (userWallet) {
+                            await userWallet.increment('balance', { by: amount, transaction: dbTransaction });
+                        } else {
+                            await Wallet.create({ user_id: depositTx.user_id, balance: amount }, { transaction: dbTransaction });
+                        }
+                        await dbTransaction.commit();
+                        // res.status(200).json({ RspCode: '00', Message: 'Confirm Success' });
+                    } else {
+                        depositTx.status = 'failed';
+                        depositTx.notes = `Giao dịch VNPay thất bại. Mã lỗi: ${responseCode}`;
+                        await depositTx.save({ transaction: dbTransaction });
+                        await dbTransaction.commit();
+                        // res.status(200).json({ RspCode: '00', Message: 'Confirm Success' });
+                    }
+                } else {
+                    await dbTransaction.rollback();
+                    // res.status(200).json({ RspCode: '02', Message: 'Order already confirmed' });
+                }
+            } else {
+                await dbTransaction.rollback();
+                // res.status(200).json({ RspCode: '01', Message: 'Order not found' });
+            }
+        } catch (error) {
+            await dbTransaction.rollback();
+            console.error("Lỗi xử lý IPN:", error);
+            // res.status(200).json({ RspCode: '99', Message: 'Unknown error' });
+        }
+        const redirectParams = new URLSearchParams();
+        redirectParams.append('success', vnp_Params['vnp_ResponseCode'] === '00' ? 'true' : 'false');
+        redirectParams.append('vnp_TxnRef', vnp_Params['vnp_TxnRef']);
+        redirectParams.append('vnp_Amount', vnp_Params['vnp_Amount']);
+        
+        res.redirect(`http://localhost:5173/vi/payment-status?${redirectParams.toString()}`);
+    } else {
+        const redirectParams = new URLSearchParams();
+        redirectParams.append('success', 'false');
+        redirectParams.append('message', 'Invalid signature');
+        res.redirect(`http://localhost:5173/vi/payment-status?${redirectParams.toString()}`);
     }
 };

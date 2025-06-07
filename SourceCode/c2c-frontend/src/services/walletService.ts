@@ -38,4 +38,13 @@ export const createDepositRequest = async (amount: number): Promise<{ paymentUrl
     return response.data;
 };
 
+/**
+ * Tạo yêu cầu nạp tiền và nhận về URL thanh toán VNPay.
+ * @param amount - Số tiền cần nạp.
+ */
+export const createVnpayDepositUrl = async (amount: number): Promise<{ paymentUrl: string }> => {
+    const response = await api.post('/wallet/deposit/create-vnpay-url', { amount });
+    return response.data;
+};
+
 // Lưu ý: Bạn có thể thêm các hàm khác như getMyTransactions() ở đây khi backend sẵn sàng.

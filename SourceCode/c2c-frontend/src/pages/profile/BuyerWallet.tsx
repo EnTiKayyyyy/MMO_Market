@@ -1,26 +1,37 @@
-import { useState } from 'react';
-import { DollarSign, ArrowDown, ArrowUp, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { DollarSign, ArrowUp, ArrowDown, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '../../utils/format';
 import { useWalletStore } from '../../stores/walletStore';
+import { createVnpayDepositUrl } from '../../services/walletService'; // Import hàm mới
 
 const BuyerWallet = () => {
-  const { balance, pendingBalance, transactions, deposit } = useWalletStore();
+  const { balance, transactions, isLoading: isWalletLoading, fetchWalletData } = useWalletStore();
   const [depositAmount, setDepositAmount] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetchWalletData();
+  }, [fetchWalletData]);
 
   const handleDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!depositAmount || isLoading) return;
+    if (!depositAmount || isSubmitting) return;
 
+    const amount = Number(depositAmount);
+    if (isNaN(amount) || amount < 10000) {
+        alert("Số tiền nạp tối thiểu là 10,000đ.");
+        return;
+    }
+
+    setIsSubmitting(true);
     try {
-      setIsLoading(true);
-      await deposit(Number(depositAmount));
-      setDepositAmount('');
-      alert('Nạp tiền thành công!');
+      const response = await createVnpayDepositUrl(amount);
+      // Chuyển hướng người dùng đến cổng thanh toán VNPay
+      window.location.href = response.paymentUrl;
     } catch (error) {
-      alert('Có lỗi xảy ra khi nạp tiền');
-    } finally {
-      setIsLoading(false);
+      alert('Có lỗi xảy ra khi tạo yêu cầu nạp tiền. Vui lòng thử lại.');
+      console.error(error);
+      setIsSubmitting(false);
     }
   };
 
@@ -66,14 +77,14 @@ const BuyerWallet = () => {
               <DollarSign size={20} />
             </div>
           </div>
-          <p className="text-2xl font-bold">{formatCurrency(balance)}</p>
+          <p className="text-3xl font-bold">{isWalletLoading ? '...' : formatCurrency(balance)}</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Nạp tiền */}
-        <div className="bg-white rounded-lg shadow-custom p-6">
-          <h2 className="text-lg font-semibold mb-4">Nạp tiền</h2>
+        <div className="lg:col-span-1 bg-white rounded-lg shadow-custom p-6 h-fit">
+          <h2 className="text-lg font-semibold mb-4">Nạp tiền qua VNPay</h2>
           <form onSubmit={handleDeposit}>
             <div className="mb-4">
               <label htmlFor="amount" className="block text-sm font-medium text-gray-700 mb-1">
@@ -85,33 +96,33 @@ const BuyerWallet = () => {
                 value={depositAmount}
                 onChange={(e) => setDepositAmount(e.target.value)}
                 className="input"
-                placeholder="Nhập số tiền"
+                placeholder="Tối thiểu 10,000đ"
                 min="10000"
                 step="10000"
+                required
               />
             </div>
 
             <button
               type="submit"
-              disabled={!depositAmount || isLoading}
+              disabled={!depositAmount || isSubmitting}
               className="btn btn-primary w-full"
             >
-              {isLoading ? 'Đang xử lý...' : 'Nạp tiền'}
+              {isSubmitting ? 'Đang xử lý...' : 'Tiếp tục với VNPay'}
             </button>
           </form>
 
           <div className="mt-4 text-sm text-gray-500">
             <p>Lưu ý:</p>
             <ul className="list-disc list-inside">
-              <li>Số tiền nạp tối thiểu là 10,000đ</li>
-              <li>Giao dịch được xử lý tự động</li>
-              <li>Liên hệ hỗ trợ nếu cần giúp đỡ</li>
+              <li>Bạn sẽ được chuyển đến cổng thanh toán VNPay.</li>
+              <li>Giao dịch được xử lý an toàn và bảo mật.</li>
             </ul>
           </div>
         </div>
 
         {/* Lịch sử giao dịch */}
-        <div className="md:col-span-2 bg-white rounded-lg shadow-custom p-6">
+        <div className="lg:col-span-2 bg-white rounded-lg shadow-custom p-6">
           <h2 className="text-lg font-semibold mb-4">Lịch sử giao dịch</h2>
           
           {transactions.length > 0 ? (
@@ -135,7 +146,7 @@ const BuyerWallet = () => {
                 </thead>
                 <tbody>
                   {transactions.map((transaction) => (
-                    <tr key={transaction.id} className="border-b last:border-0">
+                    <tr key={transaction.id} className="border-b last:border-0 hover:bg-gray-50">
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
                         {formatDateTime(transaction.createdAt)}
                       </td>
@@ -152,7 +163,7 @@ const BuyerWallet = () => {
                           {transaction.type === 'deposit' ? 'Nạp tiền' : transaction.type === 'withdraw' ? 'Rút tiền' : 'Thanh toán'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
                         <span className={transaction.type === 'deposit' ? 'text-success-600' : 'text-error-600'}>
                           {transaction.type === 'deposit' ? '+' : '-'}{formatCurrency(transaction.amount)}
                         </span>

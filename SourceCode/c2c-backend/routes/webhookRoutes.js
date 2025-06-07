@@ -7,4 +7,14 @@ const webhookController = require('../controllers/webhookController');
 // @access  Public (hoặc bảo vệ bằng API Key bí mật)
 router.post('/vietqr-confirm', webhookController.confirmVietQRDeposit);
 
+// @route   GET /api/webhooks/vnpay-ipn
+// @desc    Webhook để VNPay gửi kết quả giao dịch (IPN)
+// @access  Public
+router.get('/vnpay-ipn', webhookController.vnpayIpnHandler);
+
+// @route   GET /api/webhooks/vnpay-return
+// @desc    URL để VNPay chuyển hướng người dùng về sau khi thanh toán
+// @access  Public
+router.get('/vnpay-return', webhookController.vnpayReturnHandler);
+
 module.exports = router;

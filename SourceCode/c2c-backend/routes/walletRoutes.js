@@ -9,17 +9,16 @@ const { body } = require('express-validator'); // Dùng express-validator nếu 
 // @access  Private
 router.get('/', protect, walletController.getMyWallet);
 
-// @route   POST /api/wallet/deposit
-// @desc    Tạo yêu cầu nạp tiền và lấy URL thanh toán (ví dụ VNPay)
+// @route   POST /api/wallet/deposit/create-vnpay-url
+// @desc    Tạo URL thanh toán VNPay để nạp tiền
 // @access  Private
 router.post(
-    '/deposit',
+    '/deposit/create-vnpay-url',
     protect,
     [
         body('amount').isNumeric().withMessage('Số tiền phải là số').custom(val => val >= 10000).withMessage('Số tiền nạp tối thiểu là 10,000đ')
     ],
-    walletController.createDepositPaymentUrl
+    walletController.createVnpayPaymentUrl
 );
-
 
 module.exports = router;
