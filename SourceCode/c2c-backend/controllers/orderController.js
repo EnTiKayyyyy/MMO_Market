@@ -5,6 +5,7 @@ const qrcode = require('qrcode');
 require('dotenv').config();
 
 const COMMISSION_RATE = parseFloat(process.env.COMMISSION_RATE) || 0.05; // 5% phí sàn
+const PAYOUT_HOLD_DAYS = 3;
 
 
 /**
@@ -271,110 +272,110 @@ exports.markItemAsDelivered = async (req, res) => {
     }
 };
 
-// @desc    Người mua xác nhận đã nhận hàng -> Kích hoạt Escrow Release
-exports.confirmItemReceipt = async (req, res) => {
-    const { itemId } = req.params;
-    const buyerId = req.user.id;
-    let dbTransaction;
+// // @desc    Người mua xác nhận đã nhận hàng -> Kích hoạt Escrow Release
+// exports.confirmItemReceipt = async (req, res) => {
+//     const { itemId } = req.params;
+//     const buyerId = req.user.id;
+//     let dbTransaction;
 
-    try {
-        dbTransaction = await sequelize.transaction();
-        const orderItem = await OrderItem.findByPk(itemId, {
-            include: [
-                { model: Order, as: 'order', where: { buyer_id: buyerId } }, // Đảm bảo người mua đúng
-                { model: Product, as: 'product' } // Để lấy product_data
-            ],
-            transaction: dbTransaction
-        });
+//     try {
+//         dbTransaction = await sequelize.transaction();
+//         const orderItem = await OrderItem.findByPk(itemId, {
+//             include: [
+//                 { model: Order, as: 'order', where: { buyer_id: buyerId } }, // Đảm bảo người mua đúng
+//                 { model: Product, as: 'product' } // Để lấy product_data
+//             ],
+//             transaction: dbTransaction
+//         });
 
-        if (!orderItem) {
-            await dbTransaction.rollback();
-            return res.status(404).json({ message: 'Mục đơn hàng không tìm thấy hoặc bạn không phải người mua.' });
-        }
-        if (orderItem.status !== 'delivered') {
-            await dbTransaction.rollback();
-            return res.status(400).json({ message: `Không thể xác nhận mục chưa được giao (trạng thái: ${orderItem.status}).` });
-        }
+//         if (!orderItem) {
+//             await dbTransaction.rollback();
+//             return res.status(404).json({ message: 'Mục đơn hàng không tìm thấy hoặc bạn không phải người mua.' });
+//         }
+//         if (orderItem.status !== 'delivered') {
+//             await dbTransaction.rollback();
+//             return res.status(400).json({ message: `Không thể xác nhận mục chưa được giao (trạng thái: ${orderItem.status}).` });
+//         }
 
-        orderItem.status = 'confirmed';
-        await orderItem.save({ transaction: dbTransaction });
+//         orderItem.status = 'confirmed';
+//         await orderItem.save({ transaction: dbTransaction });
 
-        // Tính toán tiền cho người bán và phí sàn
-        const itemPrice = parseFloat(orderItem.price);
-        const commission = itemPrice * COMMISSION_RATE;
-        const sellerEarnings = itemPrice - commission;
-        orderItem.commission_fee = commission; // Lưu lại phí đã thu
-        await orderItem.save({ transaction: dbTransaction });
-
-
-        // Cộng tiền vào ví người bán
-        const sellerWallet = await SellerWallet.findOne({ where: { seller_id: orderItem.seller_id }, transaction: dbTransaction });
-        if (sellerWallet) {
-            sellerWallet.balance = parseFloat(sellerWallet.balance) + sellerEarnings;
-            await sellerWallet.save({ transaction: dbTransaction });
-        } else {
-            // Trường hợp hiếm: seller chưa có ví -> tạo mới hoặc báo lỗi
-            await SellerWallet.create({ seller_id: orderItem.seller_id, balance: sellerEarnings }, { transaction: dbTransaction });
-        }
-
-        // Ghi nhận giao dịch cho người bán
-        await Transaction.create({
-            user_id: orderItem.seller_id,
-            order_item_id: orderItem.id,
-            type: 'payout', // Hoặc 'sale_credit' tùy theo cách bạn định nghĩa
-            amount: sellerEarnings,
-            status: 'completed'
-        }, { transaction: dbTransaction });
-
-        // Ghi nhận giao dịch phí sàn (cho admin/platform)
-        await Transaction.create({
-            user_id: 1, // ID của Admin hoặc một tài khoản đại diện cho platform
-            order_item_id: orderItem.id,
-            type: 'commission',
-            amount: commission,
-            status: 'completed'
-        }, { transaction: dbTransaction });
+//         // Tính toán tiền cho người bán và phí sàn
+//         const itemPrice = parseFloat(orderItem.price);
+//         const commission = itemPrice * COMMISSION_RATE;
+//         const sellerEarnings = itemPrice - commission;
+//         orderItem.commission_fee = commission; // Lưu lại phí đã thu
+//         await orderItem.save({ transaction: dbTransaction });
 
 
-        // Kiểm tra xem tất cả items trong Order đã confirmed chưa để cập nhật Order status
-        const order = await Order.findByPk(orderItem.order_id, {
-            include: [{ model: OrderItem, as: 'items' }],
-            transaction: dbTransaction
-        });
+//         // Cộng tiền vào ví người bán
+//         const sellerWallet = await SellerWallet.findOne({ where: { seller_id: orderItem.seller_id }, transaction: dbTransaction });
+//         if (sellerWallet) {
+//             sellerWallet.balance = parseFloat(sellerWallet.balance) + sellerEarnings;
+//             await sellerWallet.save({ transaction: dbTransaction });
+//         } else {
+//             // Trường hợp hiếm: seller chưa có ví -> tạo mới hoặc báo lỗi
+//             await SellerWallet.create({ seller_id: orderItem.seller_id, balance: sellerEarnings }, { transaction: dbTransaction });
+//         }
 
-        const allItemsConfirmed = order.items.every(item => item.status === 'confirmed');
-        if (allItemsConfirmed) {
-            order.status = 'completed';
-            await order.save({ transaction: dbTransaction });
-        } else if (order.status !== 'partially_completed' && order.items.some(item => item.status === 'confirmed')) {
-            order.status = 'partially_completed';
-            await order.save({ transaction: dbTransaction });
-        }
+//         // Ghi nhận giao dịch cho người bán
+//         await Transaction.create({
+//             user_id: orderItem.seller_id,
+//             order_item_id: orderItem.id,
+//             type: 'payout', // Hoặc 'sale_credit' tùy theo cách bạn định nghĩa
+//             amount: sellerEarnings,
+//             status: 'completed'
+//         }, { transaction: dbTransaction });
+
+//         // Ghi nhận giao dịch phí sàn (cho admin/platform)
+//         await Transaction.create({
+//             user_id: 1, // ID của Admin hoặc một tài khoản đại diện cho platform
+//             order_item_id: orderItem.id,
+//             type: 'commission',
+//             amount: commission,
+//             status: 'completed'
+//         }, { transaction: dbTransaction });
 
 
-        await dbTransaction.commit();
-        res.json({
-            message: 'Xác nhận nhận hàng thành công. Tiền đã được chuyển cho người bán.',
-            orderItem,
-            // product_data sẽ được trả về qua getOrderById nếu đã confirmed
-        });
+//         // Kiểm tra xem tất cả items trong Order đã confirmed chưa để cập nhật Order status
+//         const order = await Order.findByPk(orderItem.order_id, {
+//             include: [{ model: OrderItem, as: 'items' }],
+//             transaction: dbTransaction
+//         });
 
-        await createNotification({
-            recipientId: orderItem.seller_id,
-            type: 'item_confirmed_seller',
-            title: 'Mặt hàng đã được xác nhận',
-            message: `Người mua đã xác nhận nhận hàng cho mục #${orderItem.id} (sản phẩm: ${orderItem.product.name}). Tiền đã được cộng vào ví của bạn.`,
-            link: `/seller/orders/${orderItem.order_id}`, // Link đến đơn hàng
-            relatedEntityType: 'order_item',
-            relatedEntityId: orderItem.id
-        });
+//         const allItemsConfirmed = order.items.every(item => item.status === 'confirmed');
+//         if (allItemsConfirmed) {
+//             order.status = 'completed';
+//             await order.save({ transaction: dbTransaction });
+//         } else if (order.status !== 'partially_completed' && order.items.some(item => item.status === 'confirmed')) {
+//             order.status = 'partially_completed';
+//             await order.save({ transaction: dbTransaction });
+//         }
 
-    } catch (error) {
-        if (dbTransaction) await dbTransaction.rollback();
-        console.error('Lỗi xác nhận nhận hàng:', error);
-        res.status(500).json({ message: 'Lỗi server.', error: error.message });
-    }
-};
+
+//         await dbTransaction.commit();
+//         res.json({
+//             message: 'Xác nhận nhận hàng thành công. Tiền đã được chuyển cho người bán.',
+//             orderItem,
+//             // product_data sẽ được trả về qua getOrderById nếu đã confirmed
+//         });
+
+//         await createNotification({
+//             recipientId: orderItem.seller_id,
+//             type: 'item_confirmed_seller',
+//             title: 'Mặt hàng đã được xác nhận',
+//             message: `Người mua đã xác nhận nhận hàng cho mục #${orderItem.id} (sản phẩm: ${orderItem.product.name}). Tiền đã được cộng vào ví của bạn.`,
+//             link: `/seller/orders/${orderItem.order_id}`, // Link đến đơn hàng
+//             relatedEntityType: 'order_item',
+//             relatedEntityId: orderItem.id
+//         });
+
+//     } catch (error) {
+//         if (dbTransaction) await dbTransaction.rollback();
+//         console.error('Lỗi xác nhận nhận hàng:', error);
+//         res.status(500).json({ message: 'Lỗi server.', error: error.message });
+//     }
+// };
 
 // @desc    Lấy đơn hàng của tôi (Người mua)
 exports.getMyOrders = async (req, res) => {
@@ -634,5 +635,124 @@ exports.getSellerOrders = async (req, res) => {
     } catch (error) {
         console.error('Lỗi lấy đơn hàng của người bán:', error);
         res.status(500).json({ message: 'Lỗi máy chủ khi truy vấn đơn hàng.', error: error.message });
+    }
+};
+
+async function handleSuccessfulPayment(orderId) {
+    const transaction = await sequelize.transaction();
+    try {
+        const order = await Order.findByPk(orderId, {
+            include: [{ model: OrderItem, as: 'items', include: [{ model: Product, as: 'product' }] }],
+            transaction
+        });
+
+        if (!order || order.status !== 'pending') {
+            await transaction.rollback();
+            console.log(`Đơn hàng ${orderId} không hợp lệ hoặc đã được xử lý.`);
+            return;
+        }
+
+        // 1. Cập nhật trạng thái đơn hàng thành 'completed'
+        order.status = 'completed';
+        
+        // 2. Đặt lịch chuyển tiền cho người bán sau 3 ngày
+        const payoutDate = new Date();
+        payoutDate.setDate(payoutDate.getDate() + PAYOUT_HOLD_DAYS);
+        order.payout_eligible_at = payoutDate;
+        
+        await order.save({ transaction });
+
+        // Cập nhật trạng thái các mục con
+        for (const item of order.items) {
+            item.status = 'delivered'; // Hoặc một trạng thái tương đương "đã giao/hoàn thành"
+            await item.save({ transaction });
+
+            // Thông báo cho người bán
+            await createNotification({
+                recipientId: item.seller_id,
+                type: 'order_paid_seller',
+                title: 'Sản phẩm của bạn đã được bán!',
+                message: `Sản phẩm "${item.product.name}" trong đơn hàng #${order.id} đã được thanh toán. Tiền sẽ được chuyển vào ví của bạn sau ${PAYOUT_HOLD_DAYS} ngày.`,
+                link: `/nguoi-ban/don-hang/${order.id}`
+            });
+        }
+        
+        // Thông báo cho người mua
+        await createNotification({
+            recipientId: order.buyer_id,
+            type: 'order_completed_buyer',
+            title: 'Đơn hàng của bạn đã hoàn tất',
+            message: `Đơn hàng #${order.id} đã được thanh toán thành công và hoàn tất.`,
+            link: `/don-hang/${order.id}`
+        });
+
+        await transaction.commit();
+        console.log(`Đơn hàng #${order.id} đã hoàn tất và tiền sẽ được giữ trong ${PAYOUT_HOLD_DAYS} ngày.`);
+
+    } catch (error) {
+        await transaction.rollback();
+        console.error(`Lỗi xử lý thanh toán cho đơn hàng #${orderId}:`, error);
+    }
+};
+
+// @desc    (MỚI) Admin kích hoạt xử lý chuyển tiền cho các đơn hàng đủ điều kiện
+// @route   POST /api/orders/process-payouts
+// @access  Private (Admin)
+exports.processScheduledPayouts = async (req, res) => {
+    const transaction = await sequelize.transaction();
+    try {
+        const eligibleOrders = await Order.findAll({
+            where: {
+                status: 'completed', // Chỉ các đơn đã hoàn thành
+                payout_eligible_at: { [Op.lte]: new Date() } // Đã đến ngày chuyển tiền
+            },
+            include: [{ model: OrderItem, as: 'items', where: { status: { [Op.ne]: 'refunded' } } }], // Bỏ qua item đã hoàn tiền
+            transaction
+        });
+
+        if (eligibleOrders.length === 0) {
+            await transaction.rollback();
+            return res.status(200).json({ message: 'Không có đơn hàng nào đủ điều kiện để chuyển tiền.' });
+        }
+
+        let processedCount = 0;
+        for (const order of eligibleOrders) {
+            for (const item of order.items) {
+                const itemPrice = parseFloat(item.price);
+                const commission = itemPrice * COMMISSION_RATE;
+                const sellerEarnings = itemPrice - commission;
+
+                const sellerWallet = await Wallet.findOne({ where: { user_id: item.seller_id }, transaction });
+                if (sellerWallet) {
+                    await sellerWallet.increment('balance', { by: sellerEarnings, transaction });
+                } else {
+                    await Wallet.create({ user_id: item.seller_id, balance: sellerEarnings }, { transaction });
+                }
+
+                // Ghi nhận giao dịch
+                await Transaction.create({
+                    user_id: item.seller_id,
+                    order_item_id: item.id,
+                    type: 'sale_credit',
+                    amount: sellerEarnings,
+                    status: 'completed',
+                    notes: `Payout from order #${order.id}`
+                }, { transaction });
+            }
+
+            // Đánh dấu đã xử lý để không chạy lại
+            order.payout_eligible_at = null; // Hoặc chuyển status sang 'archived'
+            order.status = 'archived'; // Ví dụ
+            await order.save({ transaction });
+            processedCount++;
+        }
+
+        await transaction.commit();
+        res.status(200).json({ message: `Đã xử lý chuyển tiền thành công cho ${processedCount} đơn hàng.` });
+
+    } catch (error) {
+        await transaction.rollback();
+        console.error('Lỗi khi xử lý chuyển tiền hàng loạt:', error);
+        res.status(500).json({ message: 'Lỗi server khi xử lý chuyển tiền.' });
     }
 };

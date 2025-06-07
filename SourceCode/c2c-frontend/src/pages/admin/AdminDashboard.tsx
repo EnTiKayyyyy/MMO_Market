@@ -70,6 +70,7 @@ const AdminDashboard = () => {
                 </div>
                 <ArrowRight size={20} className="text-gray-400 group-hover:text-primary-600" />
             </Link>
+            
         </div>
       </div>
     </div>

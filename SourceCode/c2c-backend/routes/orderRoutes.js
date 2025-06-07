@@ -34,11 +34,6 @@ router.put('/:orderId/pay', protect, orderController.markOrderAsPaid); // Cần 
 // @access  Private (Seller (owner of product in item))
 router.put('/items/:itemId/deliver', protect, authorize('seller'), orderController.markItemAsDelivered);
 
-// @route   PUT /api/orders/items/:itemId/confirm
-// @desc    Người mua xác nhận đã nhận hàng và hài lòng (kích hoạt escrow release)
-// @access  Private (Buyer (owner of order))
-router.put('/items/:itemId/confirm', protect, authorize('buyer'), orderController.confirmItemReceipt);
-
 // @route   PUT /api/orders/:orderId/cancel
 // @desc    Hủy đơn hàng
 // @access  Private (Buyer (owner, if applicable), Admin)

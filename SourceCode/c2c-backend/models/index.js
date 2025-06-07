@@ -12,6 +12,7 @@ const Wallet = require('./Wallet');
 const PayoutRequest = require('./PayoutRequest');
 const Transaction = require('./Transaction');
 const Notification = require('./Notification');
+const ErrorProduct = require('./ErrorProduct'); // Thêm model ErrorProduct
 
 const db = {};
 
@@ -32,6 +33,7 @@ db.Wallet = Wallet;
 db.PayoutRequest = PayoutRequest;
 db.Transaction = Transaction;
 db.Notification = Notification;
+db.ErrorProduct = ErrorProduct; // Thêm model ErrorProduct
 
 // --- Định nghĩa các mối quan hệ một cách có tổ chức ---
 
@@ -109,8 +111,16 @@ Transaction.belongsTo(db.PayoutRequest, { foreignKey: 'payout_request_id', as: '
 
 // Notification associations
 Notification.belongsTo(db.User, { foreignKey: 'user_id', as: 'recipient' });
-// Nếu bạn có sender_id trong Notification:
-// Notification.belongsTo(db.User, { foreignKey: 'sender_id', as: 'sender' });
+
+// --- Mối quan hệ cho ErrorProduct ---
+ErrorProduct.belongsTo(db.User, { as: 'buyer', foreignKey: 'buyer_id' });
+User.hasMany(db.ErrorProduct, { as: 'buyerErrorReports', foreignKey: 'buyer_id' });
+
+ErrorProduct.belongsTo(db.User, { as: 'seller', foreignKey: 'seller_id' });
+User.hasMany(db.ErrorProduct, { as: 'sellerErrorReports', foreignKey: 'seller_id' });
+
+ErrorProduct.belongsTo(db.OrderItem, { as: 'orderItem', foreignKey: 'order_item_id' });
+OrderItem.hasOne(db.ErrorProduct, { as: 'errorReport', foreignKey: 'order_item_id' });
 
 
 module.exports = db;

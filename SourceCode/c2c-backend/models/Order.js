@@ -21,6 +21,11 @@ const Order = sequelize.define('Order', {
         defaultValue: 'pending', // Chờ thanh toán
     },
     // Thêm các trường khác nếu cần: payment_method, transaction_id_payment_gateway,...
+    payout_eligible_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: 'The date when the funds for this order can be paid out to the seller.'
+    },
 }, {
     tableName: 'orders',
     timestamps: true,

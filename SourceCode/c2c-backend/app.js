@@ -25,6 +25,8 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
+const errorRoutes = require('./routes/errorRoutes');
+
 
 const app = express();
 const server = http.createServer(app);
@@ -67,6 +69,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/errors', errorRoutes);
 
 // Error Handling Middleware (đơn giản)
 app.use((err, req, res, next) => {
