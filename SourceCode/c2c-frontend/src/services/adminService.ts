@@ -116,3 +116,12 @@ export const adminGetOrderById = (orderId: string) => {
 export const adminUpdateOrderStatus = (orderId: string, status: string) => {
     return api.put(`/orders/${orderId}/status`, { status });
 };
+
+/**
+ * Admin hoàn tiền cho một mục trong đơn hàng.
+ * @param itemId ID của mục đơn hàng
+ * @param notes Lý do hoàn tiền
+ */
+export const adminRefundOrderItem = (itemId: string, notes: string) => {
+    return api.post(`/orders/items/${itemId}/refund`, { notes });
+};

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, User, Package, DollarSign, Edit, CheckCircle, Clock } from 'lucide-react';
-import { adminGetOrderById, adminUpdateOrderStatus } from '../../services/adminService';
+import { ArrowLeft, User, Package, DollarSign, Edit, CheckCircle, Clock, RotateCcw } from 'lucide-react'; // Thêm icon
+import { adminGetOrderById, adminUpdateOrderStatus, adminRefundOrderItem } from '../../services/adminService'; // Thêm service
 import { formatCurrency, formatDateTime } from '../../utils/format';
 import type { Order } from '../../services/orderService';
 
@@ -37,14 +37,30 @@ const AdminOrderDetail = () => {
         try {
             await adminUpdateOrderStatus(orderId, newStatus);
             alert("Cập nhật trạng thái thành công!");
-            fetchOrder(); // Tải lại dữ liệu mới nhất
+            fetchOrder();
         } catch (err: any) {
             alert(`Lỗi: ${err.response?.data?.message || err.message}`);
         }
     };
+
+    // Hàm xử lý hoàn tiền
+    const handleRefund = async (itemId: number) => {
+        const notes = prompt("Vui lòng nhập lý do hoàn tiền cho mục này:");
+        if (!notes || notes.trim() === '') {
+            alert("Lý do hoàn tiền là bắt buộc.");
+            return;
+        }
+        try {
+            await adminRefundOrderItem(String(itemId), notes);
+            alert("Hoàn tiền cho mục đơn hàng thành công!");
+            fetchOrder(); // Tải lại dữ liệu mới nhất
+        } catch (err: any) {
+            alert(`Lỗi khi hoàn tiền: ${err.response?.data?.message || err.message}`);
+        }
+    };
     
-    const getStatusText = (status: string) => ({ pending: 'Chờ xử lý', paid: 'Đã thanh toán', completed: 'Hoàn thành', cancelled: 'Đã hủy', disputed: 'Khiếu nại', processing: 'Đang xử lý' }[status] || status);
-    const getStatusColor = (status: string) => ({ paid: 'text-success-600 bg-success-50', completed: 'text-blue-600 bg-blue-50', cancelled: 'text-error-600 bg-error-50', pending: 'text-warning-600 bg-warning-50', processing: 'text-accent-600 bg-accent-50'}[status] || 'text-gray-600 bg-gray-50');
+    const getStatusText = (status: string) => ({ pending: 'Chờ xử lý', paid: 'Đã thanh toán', completed: 'Hoàn thành', cancelled: 'Đã hủy', disputed: 'Khiếu nại', processing: 'Đang xử lý', refunded: 'Đã hoàn tiền' }[status] || status);
+    const getStatusColor = (status: string) => ({ paid: 'text-success-600 bg-success-50', completed: 'text-blue-600 bg-blue-50', cancelled: 'text-error-600 bg-error-50', pending: 'text-warning-600 bg-warning-50', processing: 'text-accent-600 bg-accent-50', refunded: 'bg-gray-100 text-gray-700'}[status] || 'text-gray-600 bg-gray-50');
 
     if (isLoading) return <div className="text-center py-20">Đang tải...</div>;
     if (error) return <div className="text-center py-20 text-red-500">{error}</div>;
@@ -73,9 +89,26 @@ const AdminOrderDetail = () => {
                                     <tr key={item.id}>
                                         <td className="py-4">
                                             <p className="font-medium text-gray-900">{item.product.name}</p>
-                                            <p className="text-sm text-gray-500">Người bán: {item.seller?.name || 'N/A'}</p>
+                                            <p className="text-sm text-gray-500">Người bán: {item.seller?.username || 'N/A'}</p>
+                                        </td>
+                                        <td className="py-4 text-center">
+                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(item.status)}`}>
+                                                {getStatusText(item.status)}
+                                            </span>
                                         </td>
                                         <td className="py-4 text-right">{formatCurrency(parseFloat(item.price))}</td>
+                                        <td className="py-4 text-right">
+                                            {/* Thêm nút hoàn tiền */}
+                                            {item.status !== 'refunded' && item.status !== 'cancelled' && (
+                                                <button 
+                                                    onClick={() => handleRefund(item.id)} 
+                                                    className="p-1 text-blue-600 hover:text-blue-900" 
+                                                    title="Hoàn tiền cho mục này"
+                                                >
+                                                    <RotateCcw size={16} />
+                                                </button>
+                                            )}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>

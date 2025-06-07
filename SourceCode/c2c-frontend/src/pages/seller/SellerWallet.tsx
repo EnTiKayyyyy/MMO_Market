@@ -90,7 +90,6 @@ const SellerWalletPage = () => {
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <div className="bg-white rounded-lg shadow-custom p-6"><div className="flex items-center justify-between mb-2"><h3 className="font-medium text-gray-700">Số dư khả dụng</h3><div className="p-2 rounded-full bg-primary-100 text-primary-600"><DollarSign size={20} /></div></div><p className="text-3xl font-bold">{formatCurrency(parseFloat(wallet?.balance || '0'))}</p></div>
-        <div className="bg-white rounded-lg shadow-custom p-6"><div className="flex items-center justify-between mb-2"><h3 className="font-medium text-gray-700">Đang chờ xử lý</h3><div className="p-2 rounded-full bg-warning-100 text-warning-600"><Clock size={20} /></div></div><p className="text-3xl font-bold">{formatCurrency(payouts.filter(p=>p.status === 'pending' || p.status === 'approved').reduce((sum, p) => sum + parseFloat(p.amount), 0))}</p></div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

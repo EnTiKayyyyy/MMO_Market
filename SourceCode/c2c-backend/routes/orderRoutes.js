@@ -45,11 +45,10 @@ router.put('/:orderId/cancel', protect, orderController.cancelOrder);
 // @access  Private (Admin)
 router.get('/', protect, authorize('admin'), orderController.getAllOrdersAdmin);
 
-// @route   PUT /api/orders/:orderId/status
+// @route   PUT /api/orders/:id/status
 // @desc    Admin cập nhật trạng thái đơn hàng
 // @access  Private (Admin)
-router.put('/:orderId/status', protect, authorize('admin'), orderController.updateOrderStatusAdmin);
-
+// SỬA ĐỔI: Sử dụng /:id/status để khớp với controller và xóa route bị trùng lặp.
 router.put('/:id/status', protect, authorize('admin'), orderController.updateOrderStatusAdmin);
 
 router.get(
@@ -59,10 +58,10 @@ router.get(
     orderController.getOrderItemProductDataForBuyer
 );
 
-// @route   GET /api/orders/seller
-// @desc    Lấy danh sách đơn hàng liên quan đến sản phẩm của người bán hiện tại
-// @access  Private (Seller)
-router.get('/seller', protect, authorize('seller'), orderController.getSellerOrders);
-
+// SỬA ĐỔI: Thêm route cho Admin hoàn tiền
+// @route   POST /api/orders/items/:itemId/refund
+// @desc    Admin hoàn tiền cho một mục đơn hàng
+// @access  Private (Admin)
+router.post('/items/:itemId/refund', protect, authorize('admin'), orderController.refundOrderItemAdmin);
 
 module.exports = router;

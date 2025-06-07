@@ -1,4 +1,4 @@
-const { Order, OrderItem, Product, User, SellerWallet, Transaction, sequelize } = require('../models'); // Lấy từ models/index.js
+const { Order, OrderItem, Product, User, Wallet, Transaction, sequelize } = require('../models'); // Lấy từ models/index.js
 const { Op } = require('sequelize');
 const { createNotification } = require('../services/notificationService');
 const qrcode = require('qrcode');
@@ -754,5 +754,99 @@ exports.processScheduledPayouts = async (req, res) => {
         await transaction.rollback();
         console.error('Lỗi khi xử lý chuyển tiền hàng loạt:', error);
         res.status(500).json({ message: 'Lỗi server khi xử lý chuyển tiền.' });
+    }
+};
+
+/**
+ * @desc    Admin hoàn tiền cho một mục trong đơn hàng
+ * @route   POST /api/orders/items/:itemId/refund
+ * @access  Private (Admin)
+ */
+exports.refundOrderItemAdmin = async (req, res) => {
+    const { itemId } = req.params;
+    const { notes } = req.body; // Ghi chú của admin về lý do hoàn tiền
+    const transaction = await sequelize.transaction();
+
+    try {
+        const orderItem = await OrderItem.findByPk(itemId, {
+            include: [{ model: Order, as: 'order' }],
+            transaction
+        });
+
+        if (!orderItem) {
+            await transaction.rollback();
+            return res.status(404).json({ message: 'Mục đơn hàng không tìm thấy.' });
+        }
+
+        if (orderItem.status === 'refunded' || orderItem.status === 'cancelled') {
+            await transaction.rollback();
+            return res.status(400).json({ message: 'Mục này đã được hoàn tiền hoặc đã hủy.' });
+        }
+
+        const buyerId = orderItem.order.buyer_id;
+        const sellerId = orderItem.seller_id;
+        const amountToRefund = parseFloat(orderItem.price);
+
+        // 1. Cập nhật trạng thái mục đơn hàng
+        orderItem.status = 'refunded';
+        await orderItem.save({ transaction });
+
+        // 2. Hoàn tiền vào ví người mua
+        const buyerWallet = await Wallet.findOne({ where: { user_id: buyerId }, transaction });
+        if (buyerWallet) {
+            await buyerWallet.increment('balance', { by: amountToRefund, transaction });
+        } else {
+            // Trường hợp người mua chưa có ví (hiếm gặp), tạo mới
+            await Wallet.create({ user_id: buyerId, balance: amountToRefund }, { transaction });
+        }
+
+        // 3. Ghi nhận giao dịch hoàn tiền cho người mua
+        await Transaction.create({
+            user_id: buyerId,
+            order_item_id: itemId,
+            type: 'refund_credit_buyer',
+            amount: amountToRefund,
+            status: 'completed',
+            notes: `Admin refund for order #${orderItem.order_id}. Reason: ${notes || 'N/A'}`
+        }, { transaction });
+
+        // 4. Ghi nhận giao dịch ghi nợ cho người bán (để đối soát, không trừ tiền trực tiếp nếu chưa payout)
+        await Transaction.create({
+            user_id: sellerId,
+            order_item_id: itemId,
+            type: 'refund_debit_seller',
+            amount: -amountToRefund,
+            status: 'completed',
+            notes: `Sale reversal for item #${itemId} in order #${orderItem.order_id} due to admin refund.`
+        }, { transaction });
+
+        // 5. Kiểm tra và cập nhật trạng thái đơn hàng tổng
+        const finalOrder = await Order.findByPk(orderItem.order_id, {
+            include: [{ model: OrderItem, as: 'items' }],
+            transaction
+        });
+
+        const allItemsResolved = finalOrder.items.every(item => ['confirmed', 'refunded', 'cancelled'].includes(item.status));
+        if (allItemsResolved) {
+            const hasConfirmedItems = finalOrder.items.some(item => item.status === 'confirmed');
+            if (!hasConfirmedItems) {
+                finalOrder.status = 'refunded'; // Nếu tất cả đều refund/cancel
+            } else {
+                finalOrder.status = 'completed'; // Vẫn có mục đã thành công
+            }
+            await finalOrder.save({ transaction });
+        }
+
+
+        await transaction.commit();
+
+        // TODO: Gửi thông báo cho người mua và người bán
+
+        res.status(200).json({ message: 'Hoàn tiền cho mục đơn hàng thành công.', orderItem });
+
+    } catch (error) {
+        await transaction.rollback();
+        console.error('Lỗi khi admin hoàn tiền:', error);
+        res.status(500).json({ message: 'Lỗi server khi xử lý hoàn tiền.', error: error.message });
     }
 };

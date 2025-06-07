@@ -59,7 +59,7 @@ const BuyerWallet = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow-custom p-6">
+        <div className="bg-white rounded-lg shadow-custom p-8">
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-medium text-gray-700">Số dư khả dụng</h3>
             <div className="p-2 rounded-full bg-primary-100 text-primary-600">
@@ -67,26 +67,6 @@ const BuyerWallet = () => {
             </div>
           </div>
           <p className="text-2xl font-bold">{formatCurrency(balance)}</p>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-custom p-6">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-medium text-gray-700">Đang chờ xử lý</h3>
-            <div className="p-2 rounded-full bg-warning-100 text-warning-600">
-              <Clock size={20} />
-            </div>
-          </div>
-          <p className="text-2xl font-bold">{formatCurrency(pendingBalance)}</p>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-custom p-6">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-medium text-gray-700">Tổng giao dịch</h3>
-            <div className="p-2 rounded-full bg-accent-100 text-accent-600">
-              <ArrowDown size={20} />
-            </div>
-          </div>
-          <p className="text-2xl font-bold">{transactions.length}</p>
         </div>
       </div>
 
