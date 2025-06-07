@@ -13,6 +13,7 @@ export interface Product {
   seller: {
     id: string;
     name: string;
+    username: string; // Thêm username
     rating: number;
   };
   inStock: number;

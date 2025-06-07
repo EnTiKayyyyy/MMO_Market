@@ -36,6 +36,7 @@ const io = new Server(server, {
     }
 });
 
+// Gán io vào mỗi request để các controller có thể sử dụng
 app.use((req, res, next) => {
     req.io = io;
     next();
@@ -46,11 +47,13 @@ app.use(cors()); // Cho phép Cross-Origin Resource Sharing
 app.use(express.json()); // Parse JSON request bodies - RẤT QUAN TRỌNG, PHẢI TRƯỚC ROUTES
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded request bodies
 
+// Serve static files from the 'uploads' directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // API Routes
 app.get('/', (req, res) => res.send('API đang chạy...'));
-app.use('/api/auth', authRoutes); // authRoutes được mount ở đây
+app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/orders', orderRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/stores', storeRoutes);
@@ -75,13 +78,12 @@ io.on('connection', (socket) => {
     console.log(`Một người dùng đã kết nối: ${socket.id}`);
 
     // Tham gia một "phòng" riêng tư dựa trên ID người dùng
-    // Frontend sẽ gửi event 'joinRoom' sau khi kết nối
     socket.on('joinRoom', (userId) => {
         socket.join(`user_${userId}`);
         console.log(`User ${userId} đã tham gia phòng user_${userId}`);
     });
 
-    // Lắng nghe sự kiện gửi tin nhắn riêng tư từ client
+    // CẢI TIẾN: Lắng nghe sự kiện gửi tin nhắn riêng tư từ client
     socket.on('privateMessage', async (data) => {
         const { sender_id, receiver_id, content } = data;
         
@@ -93,19 +95,19 @@ io.on('connection', (socket) => {
                 content
             });
 
-            // Lấy thông tin chi tiết của tin nhắn vừa tạo để gửi đi
+            // 2. Lấy thông tin chi tiết của tin nhắn vừa tạo để gửi đi
             const messageDetail = await db.Message.findByPk(newMessage.id, {
                 include: [
-                    { model: db.User, as: 'sender', attributes: ['id', 'username', 'avatar_url'] },
+                    { model: db.User, as: 'sender', attributes: ['id', 'username', 'avatar_url', 'full_name'] },
                 ]
             });
 
-            // 2. Gửi tin nhắn real-time đến cả người gửi và người nhận
+            // 3. Gửi tin nhắn real-time đến cả người gửi và người nhận
             io.to(`user_${receiver_id}`).to(`user_${sender_id}`).emit('newMessage', messageDetail);
 
         } catch (error) {
             console.error("Lỗi khi xử lý tin nhắn private:", error);
-            // Có thể emit một event lỗi về cho người gửi
+            // Gửi một event lỗi về cho người gửi
             socket.emit('messageError', { message: "Không thể gửi tin nhắn." });
         }
     });
@@ -118,20 +120,14 @@ io.on('connection', (socket) => {
 // Đồng bộ CSDL và khởi chạy server
 const PORT = process.env.PORT || 3000;
 
-// Sử dụng db.sequelize từ models/index.js
+// Sử dụng server.listen thay vì app.listen để Socket.IO hoạt động
 db.sequelize.authenticate()
   .then(() => {
     console.log('Kết nối CSDL thành công.');
-    // Chỉ sync khi cần thiết trong môi trường dev, và cẩn thận với "force: true"
-    // return db.sequelize.sync({ force: false }); // Ví dụ: force: false
-    // })
-    // .then(() => {
-    //   console.log('Đồng bộ CSDL (nếu có sync).');
-    app.listen(PORT, () => console.log(`Server đang chạy trên port ${PORT}`));
+    server.listen(PORT, () => console.log(`Server đang chạy trên port ${PORT}`));
   })
   .catch(err => {
-    console.error('Không thể kết nối hoặc đồng bộ CSDL:', err)
-    // process.exit(1); // Thoát nếu không kết nối được CSDL
+    console.error('Không thể kết nối hoặc đồng bộ CSDL:', err);
 });
 
-module.exports = app;
+module.exports = { app, server };

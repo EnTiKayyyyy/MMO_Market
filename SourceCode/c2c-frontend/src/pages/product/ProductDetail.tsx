@@ -29,7 +29,7 @@ const ProductDetail = () => {
   
   // Lấy các action và state từ store
   const { addItem } = useCartStore();
-  const { isAuthenticated } = useAuthStore();
+  const { user, isAuthenticated } = useAuthStore();
   
   // Sử dụng hook useNavigate để điều hướng trang trong SPA
   const navigate = useNavigate();
@@ -86,8 +86,6 @@ const ProductDetail = () => {
     addItem(product, quantity);
     
     // Bước 2: Điều hướng đến trang thanh toán
-    // Sử dụng navigate() của React Router thay vì window.location.href
-    // để tránh tải lại toàn bộ trang và làm mất state của giỏ hàng.
     navigate('/thanh-toan');
   };
 
@@ -103,11 +101,17 @@ const ProductDetail = () => {
       return;
     }
 
+    if (product?.seller.id === user?.id) {
+        alert("Bạn không thể tự trò chuyện với chính mình.");
+        return;
+    }
+
     // Chuyển hướng đến trang tin nhắn và truyền thông tin cần thiết
     navigate('/tin-nhan', { 
       state: { 
         sellerId: product?.seller.id,
         sellerName: product?.seller.name,
+        sellerUsername: product?.seller.username,
         productId: product?.id,
         productName: product?.name
       }

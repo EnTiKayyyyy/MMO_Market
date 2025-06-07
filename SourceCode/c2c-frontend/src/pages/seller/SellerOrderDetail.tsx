@@ -7,7 +7,8 @@ import { formatCurrency, formatDateTime } from '../../utils/format';
 import { useAuthStore } from '../../stores/authStore';
 
 const SellerOrderDetail = () => {
-    const { orderId } = useParams<{ orderId: string }>();
+    // SỬA ĐỔI: Lấy đúng tham số "id" từ URL và đổi tên thành "orderId"
+    const { id: orderId } = useParams<{ id: string }>();
     const { user } = useAuthStore(); // Lấy thông tin seller hiện tại
 
     const [order, setOrder] = useState<Order | null>(null);
@@ -19,6 +20,7 @@ const SellerOrderDetail = () => {
     const [sellerTotal, setSellerTotal] = useState(0);
 
     useEffect(() => {
+        // Kiểm tra orderId sau khi đã lấy đúng từ URL
         if (!orderId) {
             setIsLoading(false);
             setError("Không tìm thấy mã đơn hàng.");
@@ -28,11 +30,13 @@ const SellerOrderDetail = () => {
         const fetchOrderDetail = async () => {
             setIsLoading(true);
             try {
+                // Gọi API với orderId đã được lấy đúng
                 const data = await getOrderById(orderId);
                 setOrder(data);
 
                 // Lọc ra các item chỉ thuộc về người bán đang xem
-                const itemsOfThisSeller = data.items.filter(item => item.seller?.id === user?.id);
+                // Dùng so sánh '==' để không bị ảnh hưởng bởi kiểu dữ liệu (string vs number)
+                const itemsOfThisSeller = data.items.filter(item => item.seller?.id == user?.id);
                 setSellerItems(itemsOfThisSeller);
 
                 // Tính tổng số tiền seller kiếm được từ đơn hàng này
@@ -47,7 +51,7 @@ const SellerOrderDetail = () => {
         };
 
         fetchOrderDetail();
-    }, [orderId, user?.id]);
+    }, [orderId, user?.id]); // useEffect sẽ chạy lại khi orderId thay đổi
 
     const getStatusText = (status: string) => ({ pending: 'Chờ xử lý', paid: 'Đã thanh toán', completed: 'Hoàn thành', cancelled: 'Đã hủy', disputed: 'Khiếu nại', processing: 'Đang xử lý' }[status] || status);
     const getStatusColor = (status: string) => ({ paid: 'text-success-600 bg-success-50', completed: 'text-blue-600 bg-blue-50', cancelled: 'text-error-600 bg-error-50', pending: 'text-warning-600 bg-warning-50', processing: 'text-accent-600 bg-accent-50'}[status] || 'text-gray-600 bg-gray-50');
@@ -60,8 +64,8 @@ const SellerOrderDetail = () => {
         return <div className="text-center py-16 bg-red-50 rounded-lg"><AlertTriangle className="mx-auto h-12 w-12 text-error-500" /><h3 className="mt-2 text-lg font-medium text-error-800">Đã xảy ra lỗi</h3><p className="mt-1 text-sm text-error-700">{error}</p></div>;
     }
     
-    if (!order) {
-        return <div className="text-center py-16">Không tìm thấy đơn hàng.</div>
+    if (!order || sellerItems.length === 0) {
+        return <div className="text-center py-16 bg-white rounded-lg"><Package className="mx-auto h-12 w-12 text-gray-400" /><h3 className="mt-2 text-lg font-medium text-gray-900">Không tìm thấy đơn hàng</h3><p className="mt-1 text-sm text-gray-500">Đơn hàng không tồn tại hoặc không chứa sản phẩm của bạn.</p></div>
     }
 
     return (

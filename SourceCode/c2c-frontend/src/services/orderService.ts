@@ -11,7 +11,14 @@ export interface OrderItem {
   product: {
     id: number;
     name: string;
-  }
+    thumbnail_url: string; // Thêm thumbnail_url để hiển thị ảnh
+  };
+  status: 'processing' | 'delivered' | 'confirmed' | 'disputed' | 'refunded' | 'cancelled'; // Thêm status
+  seller?: { // Thêm seller
+      id: string;
+      name: string;
+      username: string;
+  };
 }
 
 /**

@@ -24,7 +24,7 @@ import AdminSettings from './pages/admin/AdminSettings';
 import NotFound from './pages/NotFound';
 import OrderHistory from './pages/orders/OrderHistory';
 import OrderDetail from './pages/orders/OrderDetail';
-// import Messages from './pages/messages/Messages';
+import MessagesPage from './pages/messages/Messages'; // SỬA ĐỔI: Import trang tin nhắn mới
 import { useAuthStore } from './stores/authStore';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import AddProduct from './pages/seller/AddProduct';
@@ -35,14 +35,12 @@ import AdminOrderDetail from './pages/admin/AdminOrderDetail';
 function App() {
   const { initAuth } = useAuthStore();
 
-  // Sử dụng useEffect để gọi initAuth() MỘT LẦN DUY NHẤT khi component được render lần đầu
   useEffect(() => {
     initAuth();
-  }, [initAuth]); // Dependency array đảm bảo hàm chỉ chạy một lần
+  }, [initAuth]);
 
   return (
     <Routes>
-      {/* Public routes */}
       <Route path="/" element={<Layout />}>
         <Route index element={<Home />} />
         <Route path="san-pham" element={<ProductList />} />
@@ -52,19 +50,16 @@ function App() {
         <Route path="dang-ky" element={<Register />} />
         <Route path="*" element={<NotFound />} />
 
-        {/* Buyer protected routes */}
         <Route element={<ProtectedRoute role="buyer" />}>
           <Route path="thanh-toan" element={<Checkout />} />
-          {/* <Route path="thanh-toan-qr/:orderId" element={<PaymentQR />} /> */}
           <Route path="tai-khoan" element={<BuyerProfile />} />
           <Route path="vi" element={<BuyerWallet />} />
           <Route path="don-hang" element={<OrderHistory />} />
           <Route path="don-hang/:id" element={<OrderDetail />} />
-          {/* <Route path="tin-nhan" element={<Messages />} /> */}
-          
+          {/* SỬA ĐỔI: Bật route cho trang tin nhắn */}
+          <Route path="tin-nhan" element={<MessagesPage />} /> 
         </Route>
 
-        {/* Seller protected routes */}
         <Route element={<ProtectedRoute role="seller" />}>
           <Route path="nguoi-ban/tong-quan" element={<SellerDashboard />} />
           <Route path="nguoi-ban/san-pham" element={<SellerProducts />} />
@@ -74,7 +69,6 @@ function App() {
           <Route path="nguoi-ban/don-hang/:id" element={<SellerOrderDetail />} />
         </Route>
 
-        {/* Admin protected routes */}
         <Route element={<ProtectedRoute role="admin" />}>
           <Route path="quan-tri/tong-quan" element={<AdminDashboard />} />
           <Route path="quan-tri/san-pham" element={<AdminProducts />} />
