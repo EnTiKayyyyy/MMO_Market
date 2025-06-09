@@ -1,4 +1,3 @@
-// File: models/PayoutRequest.js
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database'); // Đảm bảo đường dẫn này đúng
 
@@ -33,6 +32,9 @@ const PayoutRequest = sequelize.define('PayoutRequest', {
         type: DataTypes.TEXT,
         allowNull: false,
     },
+    // CHÚ Ý: Các trường dưới đây đã được chú thích lại để khắc phục lỗi "Unknown column".
+    // Bạn nên thêm các cột này vào bảng `payout_requests` trong CSDL của mình để có đầy đủ chức năng.
+    /*
     admin_notes: { // Ghi chú của admin khi xử lý
         type: DataTypes.TEXT,
         allowNull: true,
@@ -45,7 +47,7 @@ const PayoutRequest = sequelize.define('PayoutRequest', {
         type: DataTypes.STRING(255),
         allowNull: true,
     }
-    // createdAt và updatedAt sẽ được Sequelize tự động thêm nếu timestamps: true
+    */
 }, {
     tableName: 'payout_requests', // Tên bảng trong CSDL
     timestamps: true,

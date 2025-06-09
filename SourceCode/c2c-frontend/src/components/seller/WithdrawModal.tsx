@@ -11,6 +11,21 @@ interface WithdrawModalProps {
   onSuccess: () => void;
 }
 
+// Danh sách các ngân hàng được hỗ trợ
+const supportedBanks = [
+    { name: 'Ngân hàng TMCP Ngoại thương Việt Nam', shortName: 'Vietcombank' },
+    { name: 'Ngân hàng TMCP Kỹ thương Việt Nam', shortName: 'Techcombank' },
+    { name: 'Ngân hàng TMCP Á Châu', shortName: 'ACB' },
+    { name: 'Ngân hàng TMCP Quân đội', shortName: 'MB Bank' },
+    { name: 'Ngân hàng TMCP Đầu tư và Phát triển Việt Nam', shortName: 'BIDV' },
+    { name: 'Ngân hàng TMCP Công Thương Việt Nam', shortName: 'Vietinbank' },
+    { name: 'Ngân hàng Nông nghiệp và Phát triển Nông thôn Việt Nam', shortName: 'Agribank' },
+    { name: 'Ngân hàng TMCP Việt Nam Thịnh Vượng', shortName: 'VPBank' },
+    { name: 'Ngân hàng TMCP Sài Gòn Thương Tín', shortName: 'Sacombank' },
+    { name: 'Ngân hàng TMCP Tiên Phong', shortName: 'TPBank' },
+    { name: 'Ngân hàng TMCP Quốc tế Việt Nam', shortName: 'VIB' },
+];
+
 interface WithdrawFormData {
   amount: number;
   bankName: string;
@@ -19,7 +34,11 @@ interface WithdrawFormData {
 }
 
 const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, currentBalance, onSuccess }) => {
-  const { register, handleSubmit, formState: { errors }, reset } = useForm<WithdrawFormData>();
+  const { register, handleSubmit, formState: { errors }, reset } = useForm<WithdrawFormData>({
+    defaultValues: {
+      bankName: supportedBanks[0].shortName // Đặt giá trị mặc định cho select
+    }
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -33,8 +52,8 @@ const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, currentB
         accountName: data.accountName,
       });
       alert("Yêu cầu rút tiền của bạn đã được gửi thành công!");
-      reset(); // Xóa form sau khi gửi thành công
-      onSuccess(); // Gọi hàm callback để đóng modal và làm mới dữ liệu
+      reset(); 
+      onSuccess();
     } catch (err: any) {
       setServerError(err.response?.data?.message || 'Có lỗi xảy ra, vui lòng thử lại.');
     } finally {
@@ -42,13 +61,10 @@ const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, currentB
     }
   };
   
-  // Không render gì cả nếu modal không mở
   if (!isOpen) return null;
 
   return (
-    // Lớp nền mờ
     <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 transition-opacity" onClick={onClose}>
-      {/* Nội dung modal */}
       <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md m-4" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold">Tạo yêu cầu rút tiền</h2>
@@ -75,19 +91,32 @@ const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, currentB
             />
              {errors.amount && <p className="text-red-600 text-sm mt-1">{errors.amount.message}</p>}
           </div>
+          
+          {/* ĐÃ THAY ĐỔI: Sử dụng select cho ngân hàng */}
           <div>
-            <label htmlFor="bankName" className="block text-sm font-medium text-gray-700 mb-1">Tên ngân hàng</label>
-            <input type="text" id="bankName" className="input" placeholder="VD: Vietcombank" {...register('bankName', { required: 'Vui lòng nhập tên ngân hàng' })} />
+            <label htmlFor="bankNameModal" className="block text-sm font-medium text-gray-700 mb-1">Ngân hàng</label>
+            <select
+              id="bankNameModal"
+              className="input"
+              {...register('bankName', { required: 'Vui lòng chọn ngân hàng' })}
+            >
+              {supportedBanks.map((bank) => (
+                <option key={bank.shortName} value={bank.shortName}>
+                  {bank.name} ({bank.shortName})
+                </option>
+              ))}
+            </select>
             {errors.bankName && <p className="text-red-600 text-sm mt-1">{errors.bankName.message}</p>}
           </div>
+
           <div>
-            <label htmlFor="accountNumber" className="block text-sm font-medium text-gray-700 mb-1">Số tài khoản</label>
-            <input type="text" id="accountNumber" className="input" placeholder="Nhập số tài khoản" {...register('accountNumber', { required: 'Vui lòng nhập số tài khoản' })} />
+            <label htmlFor="accountNumberModal" className="block text-sm font-medium text-gray-700 mb-1">Số tài khoản</label>
+            <input type="text" id="accountNumberModal" className="input" placeholder="Nhập số tài khoản" {...register('accountNumber', { required: 'Vui lòng nhập số tài khoản' })} />
             {errors.accountNumber && <p className="text-red-600 text-sm mt-1">{errors.accountNumber.message}</p>}
           </div>
           <div>
-            <label htmlFor="accountName" className="block text-sm font-medium text-gray-700 mb-1">Tên chủ tài khoản</label>
-            <input type="text" id="accountName" className="input" placeholder="NGUYEN VAN A" {...register('accountName', { required: 'Vui lòng nhập tên chủ tài khoản' })} />
+            <label htmlFor="accountNameModal" className="block text-sm font-medium text-gray-700 mb-1">Tên chủ tài khoản</label>
+            <input type="text" id="accountNameModal" className="input" placeholder="NGUYEN VAN A" {...register('accountName', { required: 'Vui lòng nhập tên chủ tài khoản' })} />
             {errors.accountName && <p className="text-red-600 text-sm mt-1">{errors.accountName.message}</p>}
           </div>
           <div className="flex justify-end gap-3 pt-4 border-t">

@@ -1,25 +1,72 @@
 const { body, param, validationResult } = require('express-validator');
-const { Op } = require('sequelize'); // Import Op để dùng các toán tử của Sequelize
+const { Op } = require('sequelize');
 
 const {
     Category,
     Store,
     OrderItem,
-    Order, // Order được OrderItem include
+    Order,
     Dispute,
     User,
-    SellerWallet,
+    Wallet,
     Product
 } = require('../models');
 
+// ... các hàm validation khác ...
+
+exports.validatePayoutRequest = [
+    body('amount').isFloat({ gt: 0 }).withMessage('Số tiền phải là một số lớn hơn 0.')
+        .custom(async (value, { req }) => {
+            const wallet = await Wallet.findOne({ where: { user_id: req.user.id } });
+            if (!wallet || parseFloat(wallet.balance) < parseFloat(value)) {
+                throw new Error('Số dư ví không đủ để thực hiện yêu cầu rút tiền.');
+            }
+            const MIN_WITHDRAWAL = process.env.MIN_WITHDRAWAL_AMOUNT || 50000;
+            if (parseFloat(value) < MIN_WITHDRAWAL) {
+                throw new Error(`Số tiền rút tối thiểu là ${parseFloat(MIN_WITHDRAWAL).toLocaleString('vi-VN')}đ.`);
+            }
+            return true;
+        }),
+    body('payout_info').isObject().withMessage('Thông tin thanh toán phải là một object.'),
+    body('payout_info.bankName').trim().notEmpty().withMessage('Tên ngân hàng là bắt buộc.'),
+    body('payout_info.accountNumber').trim().notEmpty().withMessage('Số tài khoản là bắt buộc.'),
+    body('payout_info.accountName').trim().notEmpty().withMessage('Tên chủ tài khoản là bắt buộc.'),
+
+    (req, res, next) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ errors: errors.array() });
+        }
+        next();
+    }
+];
+
+// **FIX**: Thay 'completed' bằng 'approved' trong danh sách các trạng thái hợp lệ
+exports.validatePayoutProcess = [
+    param('requestId').isInt({ gt: 0 }).withMessage('ID yêu cầu không hợp lệ.'),
+    body('new_status').isIn(['approved', 'rejected']).withMessage('Trạng thái xử lý không hợp lệ.'),
+    body('admin_notes').optional({ checkFalsy: true }).isString().trim()
+        .isLength({ max: 1000 }).withMessage('Ghi chú của admin không quá 1000 ký tự.'),
+    (req, res, next) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ errors: errors.array() });
+        }
+        if (req.body.new_status === 'rejected' && (!req.body.admin_notes || req.body.admin_notes.trim() === '')) {
+            return res.status(400).json({ errors: [{ path: 'admin_notes', msg: 'Ghi chú của admin là bắt buộc khi từ chối yêu cầu.'}] });
+        }
+        next();
+    }
+];
+
+// ... các hàm validation còn lại ...
 exports.validateProduct = [
     body('name').notEmpty().withMessage('Tên sản phẩm không được để trống')
         .isLength({ min: 5 }).withMessage('Tên sản phẩm phải có ít nhất 5 ký tự'),
     body('price').isNumeric().withMessage('Giá sản phẩm phải là số')
-        .custom(value => parseFloat(value) > 0).withMessage('Giá sản phẩm phải lớn hơn 0'), // Chuyển value sang số để so sánh
+        .custom(value => parseFloat(value) > 0).withMessage('Giá sản phẩm phải lớn hơn 0'),
     body('category_id').isInt({ gt: 0 }).withMessage('ID danh mục không hợp lệ'),
     body('product_data').notEmpty().withMessage('Nội dung sản phẩm không được để trống'),
-    // Thêm các validation khác nếu cần (description, status...)
 
     (req, res, next) => {
         const errors = validationResult(req);
@@ -33,8 +80,6 @@ exports.validateProduct = [
 exports.validateOrderCreation = [
     body('items').isArray({ min: 1 }).withMessage('Đơn hàng phải có ít nhất 1 sản phẩm.'),
     body('items.*.product_id').isInt({ gt: 0 }).withMessage('ID sản phẩm không hợp lệ.'),
-    // body('items.*.quantity').isInt({ gt: 0 }).withMessage('Số lượng sản phẩm phải lớn hơn 0.'), // Bỏ qua nếu chỉ bán 1 item digital/lần
-
     (req, res, next) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
@@ -118,7 +163,7 @@ exports.validateDisputeCreation = [
             const existingDispute = await Dispute.findOne({ where: { order_item_id: req.params.itemId, status: {[Op.notIn]: ['closed', 'resolved_favor_seller', 'resolved_refund_buyer']}}});
             if(existingDispute) return res.status(400).json({ message: 'Đã có một khiếu nại đang mở cho mục đơn hàng này.'});
         } catch(e) {
-            console.error("Validation error in validateDisputeCreation:", e); // Log lỗi để debug
+            console.error("Validation error in validateDisputeCreation:", e);
             return res.status(500).json({message: "Lỗi kiểm tra dữ liệu khiếu nại."});
         }
         next();
@@ -175,70 +220,12 @@ exports.validateSendMessage = [
     }
 ];
 
-exports.validatePayoutRequest = [
-    body('amount').isDecimal({ decimal_digits: '0,2' }).withMessage('Số tiền không hợp lệ.')
-        .custom((value) => {
-            if (parseFloat(value) <= 0) {
-                throw new Error('Số tiền rút phải lớn hơn 0.');
-            }
-            return true;
-        })
-        .custom(async (value, { req }) => {
-            const sellerWallet = await SellerWallet.findOne({ where: { seller_id: req.user.id } });
-            if (!sellerWallet || parseFloat(sellerWallet.balance) < parseFloat(value)) {
-                throw new Error('Số dư không đủ để thực hiện yêu cầu rút tiền.');
-            }
-            return true;
-        }),
-    body('payout_info').notEmpty().withMessage('Thông tin thanh toán không được để trống.')
-        .isJSON().withMessage('Thông tin thanh toán phải ở dạng JSON hợp lệ. Ví dụ: {"bank_name":"VCB", "account_number":"123", "account_name":"Nguyen Van A"}')
-        .custom(value => {
-            try {
-                const parsed = JSON.parse(value);
-                if (!parsed.bank_name || !parsed.account_number || !parsed.account_name) {
-                    if(!parsed.ewallet_id || !parsed.ewallet_type) {
-                        throw new Error('Thông tin thanh toán JSON thiếu các trường bắt buộc (bank_name, account_number, account_name) hoặc (ewallet_id, ewallet_type).');
-                    }
-                }
-            } catch (e) {
-                throw new Error('Thông tin thanh toán không phải là JSON hợp lệ.');
-            }
-            return true;
-        }),
-    (req, res, next) => {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({ errors: errors.array() });
-        }
-        next();
-    }
-];
-
-exports.validatePayoutProcess = [
-    param('requestId').isInt({ gt: 0 }).withMessage('ID yêu cầu không hợp lệ.'),
-    body('new_status').isIn(['approved', 'processing', 'completed', 'rejected', 'failed']).withMessage('Trạng thái xử lý không hợp lệ.'),
-    body('admin_notes').optional({ checkFalsy: true }).isString().trim()
-        .isLength({ max: 1000 }).withMessage('Ghi chú của admin không quá 1000 ký tự.'),
-    body('transaction_id_payout').optional({ checkFalsy: true }).isString().trim()
-        .isLength({ max: 255 }).withMessage('ID giao dịch payout không quá 255 ký tự.'),
-    (req, res, next) => {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({ errors: errors.array() });
-        }
-        if (req.body.new_status === 'rejected' && (!req.body.admin_notes || req.body.admin_notes.trim() === '')) {
-            return res.status(400).json({ errors: [{ field: 'admin_notes', msg: 'Ghi chú của admin là bắt buộc khi từ chối yêu cầu.'}] }); // Sửa `param` thành `field` cho body
-        }
-        next();
-    }
-];
-
 exports.validateUserUpdateAdmin = [
     param('userId').isInt({ gt: 0 }).withMessage('User ID không hợp lệ.'),
     body('role').optional().isIn(['buyer', 'seller', 'admin']).withMessage('Vai trò không hợp lệ.'),
     body('status').optional().isIn(['pending_verification', 'active', 'suspended']).withMessage('Trạng thái không hợp lệ.'),
     body('full_name').optional().isString().trim().isLength({ min: 2, max: 100 }).withMessage('Họ tên không hợp lệ.'),
-    body('phone_number').optional({checkFalsy: true}).isString().trim().isMobilePhone('vi-VN').withMessage('Số điện thoại không hợp lệ.'), // Sử dụng isMobilePhone('any') nếu muốn linh hoạt hơn về quốc gia
+    body('phone_number').optional({checkFalsy: true}).isString().trim().isMobilePhone('vi-VN').withMessage('Số điện thoại không hợp lệ.'),
     async (req, res, next) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
@@ -268,7 +255,7 @@ exports.validateProductStatusUpdate = [
             return res.status(400).json({ errors: errors.array() });
         }
         if (req.body.status === 'rejected' && (!req.body.admin_notes || req.body.admin_notes.trim() === '')) {
-            return res.status(400).json({ errors: [{ field: 'admin_notes', msg: 'Ghi chú của admin là bắt buộc khi từ chối sản phẩm.'}] }); // Sửa `param` thành `field` cho body
+            return res.status(400).json({ errors: [{ path: 'admin_notes', msg: 'Ghi chú của admin là bắt buộc khi từ chối sản phẩm.'}] });
         }
         try {
             const product = await Product.findByPk(req.params.productId);
@@ -285,13 +272,11 @@ exports.validateProductStatusUpdate = [
 ];
 
 exports.validateProductUpdate = [
-    // Các quy tắc khác tương tự nhưng đều là optional
     body('name').optional().notEmpty().withMessage('Tên sản phẩm không được để trống')
         .isLength({ min: 5 }).withMessage('Tên sản phẩm phải có ít nhất 5 ký tự'),
     body('price').optional().isNumeric().withMessage('Giá sản phẩm phải là số')
         .custom(value => parseFloat(value) > 0).withMessage('Giá sản phẩm phải lớn hơn 0'),
     body('category_id').optional().isInt({ gt: 0 }).withMessage('ID danh mục không hợp lệ'),
-    // Quan trọng: product_data là không bắt buộc khi cập nhật
     body('product_data').optional().notEmpty().withMessage('Nội dung sản phẩm không được để trống nếu được cung cấp'),
 
     (req, res, next) => {

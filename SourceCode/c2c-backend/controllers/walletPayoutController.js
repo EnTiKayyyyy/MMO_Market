@@ -1,79 +1,69 @@
-const { SellerWallet, PayoutRequest, User, Transaction, sequelize } = require('../models');
+const { Wallet, PayoutRequest, User, Transaction, sequelize } = require('../models');
 const { Op } = require('sequelize');
+const { validationResult } = require('express-validator');
 
-// @desc    Lấy thông tin ví của người bán hiện tại
+/**
+ * @desc    Lấy thông tin ví của người dùng hiện tại (người bán)
+ * @route   GET /api/wallet-payouts/wallet/my
+ * @access  Private (Seller)
+ */
 exports.getMyWallet = async (req, res) => {
     try {
-        let wallet = await SellerWallet.findOne({ where: { seller_id: req.user.id } });
+        let wallet = await Wallet.findOne({ where: { user_id: req.user.id } });
         if (!wallet) {
-            // Nếu người bán chưa có ví, tạo một ví mới với số dư 0
-            wallet = await SellerWallet.create({ seller_id: req.user.id, balance: 0.00 });
+            // Nếu người dùng chưa có ví, tạo một ví mới
+            wallet = await Wallet.create({ user_id: req.user.id, balance: 0.00 });
         }
         res.json(wallet);
     } catch (error) {
-        console.error('Lỗi lấy thông tin ví:', error);
+        console.error('Lỗi khi lấy thông tin ví:', error);
         res.status(500).json({ message: 'Lỗi server.', error: error.message });
     }
 };
 
-// @desc    Người bán tạo yêu cầu rút tiền mới
+/**
+ * @desc    Người bán tạo yêu cầu rút tiền mới
+ * @route   POST /api/wallet-payouts/request
+ * @access  Private (Seller)
+ */
 exports.createPayoutRequest = async (req, res) => {
+    // Kiểm tra validation từ middleware
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+
     const { amount, payout_info } = req.body;
     const seller_id = req.user.id;
-    let dbTransaction;
-
     try {
-        dbTransaction = await sequelize.transaction();
-
-        const sellerWallet = await SellerWallet.findOne({ where: { seller_id }, transaction: dbTransaction });
-
-        // Validation số dư đã được thực hiện trong middleware, nhưng kiểm tra lại cho chắc chắn
-        if (!sellerWallet || parseFloat(sellerWallet.balance) < parseFloat(amount)) {
-            await dbTransaction.rollback();
-            return res.status(400).json({ message: 'Số dư không đủ.' });
-        }
-
-        // Trừ tiền từ ví (tiền này sẽ được "tạm giữ")
-        sellerWallet.balance = parseFloat(sellerWallet.balance) - parseFloat(amount);
-        await sellerWallet.save({ transaction: dbTransaction });
-
+        // Chỉ tạo yêu cầu mới, không trừ tiền từ ví ở bước này
         const newPayoutRequest = await PayoutRequest.create({
             seller_id,
             amount: parseFloat(amount),
-            payout_info, // Đã được validate là JSON string
+            payout_info: JSON.stringify(payout_info),
             status: 'pending'
-        }, { transaction: dbTransaction });
-
-        // Ghi nhận giao dịch "tạm giữ tiền chờ rút" (âm từ ví seller)
-        await Transaction.create({
-            user_id: seller_id,
-            type: 'payout_request_debit', // Tiền bị trừ khỏi ví để chờ xử lý
-            amount: -parseFloat(amount),
-            status: 'completed', // Giao dịch này là hoàn thành việc trừ tiền ví
-            notes: `Payout request #${newPayoutRequest.id} created. Funds held.`,
-            // payout_request_id: newPayoutRequest.id // Nếu có cột này trong Transaction
-        }, { transaction: dbTransaction });
-
-
-        await dbTransaction.commit();
-        res.status(201).json({ message: 'Yêu cầu rút tiền đã được tạo thành công và đang chờ xử lý.', payoutRequest: newPayoutRequest });
-
+        });
+        res.status(201).json({ message: 'Yêu cầu rút tiền đã được gửi thành công và đang chờ xử lý.', payoutRequest: newPayoutRequest });
     } catch (error) {
-        if (dbTransaction) await dbTransaction.rollback();
-        console.error('Lỗi tạo yêu cầu rút tiền:', error);
-        res.status(500).json({ message: 'Lỗi server.', error: error.message });
+        console.error('Lỗi khi tạo yêu cầu rút tiền:', error);
+        res.status(500).json({ message: 'Lỗi server khi tạo yêu cầu rút tiền.', error: error.message });
     }
 };
 
-// @desc    Người bán xem lịch sử yêu cầu rút tiền của mình
+/**
+ * @desc    Người bán xem lịch sử các yêu cầu rút tiền của mình
+ * @route   GET /api/wallet-payouts/my-requests
+ * @access  Private (Seller)
+ */
 exports.getMyPayoutRequests = async (req, res) => {
     const seller_id = req.user.id;
     const { page = 1, limit = 10, status } = req.query;
     const offset = (page - 1) * limit;
     try {
         let whereClause = { seller_id };
-        if (status) whereClause.status = status;
-
+        if (status) {
+            whereClause.status = status;
+        }
         const requests = await PayoutRequest.findAndCountAll({
             where: whereClause,
             order: [['createdAt', 'DESC']],
@@ -87,26 +77,43 @@ exports.getMyPayoutRequests = async (req, res) => {
             payoutRequests: requests.rows
         });
     } catch (error) {
-        console.error('Lỗi lấy lịch sử yêu cầu rút tiền:', error);
+        console.error('Lỗi khi lấy lịch sử yêu cầu rút tiền:', error);
         res.status(500).json({ message: 'Lỗi server.', error: error.message });
     }
 };
 
 // === ADMIN CONTROLLERS ===
 
-// @desc    Admin xem tất cả yêu cầu rút tiền
+/**
+ * @desc    Admin xem tất cả các yêu cầu rút tiền
+ * @route   GET /api/wallet-payouts
+ * @access  Private (Admin)
+ */
 exports.getAllPayoutRequestsAdmin = async (req, res) => {
-    const { page = 1, limit = 10, status, sellerId } = req.query;
+    const { page = 1, limit = 10, status, search } = req.query;
     const offset = (page - 1) * limit;
     try {
         let whereClause = {};
-        if (status) whereClause.status = status;
-        if (sellerId) whereClause.seller_id = parseInt(sellerId);
+        let userWhereClause = {};
+        if (status) {
+            whereClause.status = status;
+        }
+        if (search) {
+            userWhereClause[Op.or] = [
+                { username: { [Op.like]: `%${search}%` } },
+                { email: { [Op.like]: `%${search}%` } },
+            ];
+        }
 
         const requests = await PayoutRequest.findAndCountAll({
             where: whereClause,
-            include: [{ model: User, as: 'seller', attributes: ['id', 'username', 'email'] }],
-            order: [['status', 'ASC'], ['createdAt', 'DESC']], // Ưu tiên pending
+            include: [{
+                model: User,
+                as: 'seller',
+                attributes: ['id', 'username', 'email'],
+                where: userWhereClause
+            }],
+            order: [['status', 'ASC'], ['createdAt', 'DESC']],
             limit: parseInt(limit),
             offset: parseInt(offset),
         });
@@ -117,12 +124,16 @@ exports.getAllPayoutRequestsAdmin = async (req, res) => {
             payoutRequests: requests.rows
         });
     } catch (error) {
-        console.error('Lỗi lấy tất cả yêu cầu rút tiền (admin):', error);
+        console.error('Lỗi khi lấy tất cả yêu cầu rút tiền (admin):', error);
         res.status(500).json({ message: 'Lỗi server.', error: error.message });
     }
 };
 
-// @desc    Admin xem chi tiết một yêu cầu rút tiền
+/**
+ * @desc    Admin xem chi tiết một yêu cầu rút tiền
+ * @route   GET /api/wallet-payouts/:requestId
+ * @access  Private (Admin)
+ */
 exports.getPayoutRequestByIdAdmin = async (req, res) => {
     try {
         const request = await PayoutRequest.findByPk(req.params.requestId, {
@@ -133,80 +144,67 @@ exports.getPayoutRequestByIdAdmin = async (req, res) => {
         }
         res.json(request);
     } catch (error) {
-        console.error('Lỗi lấy chi tiết yêu cầu rút tiền (admin):', error);
+        console.error('Lỗi khi lấy chi tiết yêu cầu rút tiền (admin):', error);
         res.status(500).json({ message: 'Lỗi server.', error: error.message });
     }
 };
 
-// @desc    Admin xử lý một yêu cầu rút tiền (approve/reject)
+/**
+ * @desc    Admin xử lý một yêu cầu rút tiền (hoàn thành hoặc từ chối)
+ * @route   PUT /api/wallet-payouts/:requestId/process
+ * @access  Private (Admin)
+ */
 exports.processPayoutRequestAdmin = async (req, res) => {
     const { requestId } = req.params;
-    const { new_status, admin_notes, transaction_id_payout } = req.body; // transaction_id_payout là ID từ cổng thanh toán nếu có
-    const processed_by_admin_id = req.user.id; // Admin đang xử lý
+    const { new_status, admin_notes } = req.body; // new_status sẽ là 'approved' hoặc 'rejected'
     let dbTransaction;
 
     try {
         dbTransaction = await sequelize.transaction();
-        const payoutRequest = await PayoutRequest.findByPk(requestId, { transaction: dbTransaction });
+        const payoutRequest = await PayoutRequest.findByPk(requestId, { transaction: dbTransaction, lock: true });
 
         if (!payoutRequest) {
             await dbTransaction.rollback();
             return res.status(404).json({ message: 'Yêu cầu rút tiền không tìm thấy.' });
         }
-        if (payoutRequest.status !== 'pending' && payoutRequest.status !== 'approved' && payoutRequest.status !== 'processing') { // Chỉ xử lý các request đang chờ hoặc đã duyệt nhưng chưa xong
+        if (payoutRequest.status !== 'pending') {
             await dbTransaction.rollback();
-            return res.status(400).json({ message: `Không thể xử lý yêu cầu ở trạng thái "${payoutRequest.status}".` });
+            return res.status(400).json({ message: `Chỉ có thể xử lý yêu cầu ở trạng thái "pending".` });
         }
 
-        const oldStatus = payoutRequest.status;
+        // Cập nhật trạng thái
         payoutRequest.status = new_status;
-        payoutRequest.admin_notes = admin_notes || payoutRequest.admin_notes;
-        payoutRequest.processed_at = new Date();
-        // payoutRequest.processed_by_admin_id = processed_by_admin_id; // Nếu có cột này
-        if (transaction_id_payout) payoutRequest.transaction_id_payout = transaction_id_payout;
+        
+        // **FIX**: Thay 'completed' bằng 'approved' để khớp với ENUM có thể có trong DB
+        if (new_status === 'approved') {
+            const sellerWallet = await Wallet.findOne({ where: { user_id: payoutRequest.seller_id }, transaction: dbTransaction, lock: true });
+            const amountToWithdraw = parseFloat(payoutRequest.amount);
 
-        await payoutRequest.save({ transaction: dbTransaction });
-
-        if (new_status === 'rejected' || new_status === 'failed') {
-            // Hoàn tiền lại vào ví người bán
-            const sellerWallet = await SellerWallet.findOne({ where: { seller_id: payoutRequest.seller_id }, transaction: dbTransaction });
-            if (sellerWallet) {
-                sellerWallet.balance = parseFloat(sellerWallet.balance) + parseFloat(payoutRequest.amount);
-                await sellerWallet.save({ transaction: dbTransaction });
-
-                // Ghi nhận giao dịch "hoàn tiền vào ví do từ chối/thất bại rút"
-                await Transaction.create({
-                    user_id: payoutRequest.seller_id,
-                    type: 'payout_rejection_credit',
-                    amount: parseFloat(payoutRequest.amount), // Dương cho ví seller
-                    status: 'completed',
-                    notes: `Payout request #${payoutRequest.id} ${new_status}. Funds returned to wallet. Admin notes: ${admin_notes || ''}`,
-                    // payout_request_id: payoutRequest.id // Nếu có
-                }, { transaction: dbTransaction });
-            } else {
-                // Trường hợp hiếm: không tìm thấy ví, cần ghi log lỗi
-                console.error(`CRITICAL: Seller wallet not found for seller_id ${payoutRequest.seller_id} during payout rejection.`);
+            if (!sellerWallet || parseFloat(sellerWallet.balance) < amountToWithdraw) {
+                await dbTransaction.rollback();
+                payoutRequest.status = 'failed';
+                // Không cần lưu `admin_notes` vì transaction đã rollback
+                await payoutRequest.save(); 
+                return res.status(400).json({ message: 'Không thể hoàn thành: Số dư của người bán không đủ.' });
             }
-        } else if (new_status === 'completed') {
-            // Tiền đã được trừ khỏi ví khi tạo request.
-            // Ở bước này, admin xác nhận tiền đã thực sự được chuyển đi bên ngoài hệ thống.
-            // Ghi nhận giao dịch "rút tiền thành công" (khác với "tạm giữ tiền chờ rút")
-            // Giao dịch này có thể không làm thay đổi balance trong hệ thống nữa nếu đã trừ khi request
-            // nhưng nó quan trọng để đối soát.
+
+            // Trừ tiền khỏi ví
+            sellerWallet.balance = parseFloat(sellerWallet.balance) - amountToWithdraw;
+            await sellerWallet.save({ transaction: dbTransaction });
+            
+            // Tạo giao dịch rút tiền
             await Transaction.create({
                 user_id: payoutRequest.seller_id,
-                type: 'payout_completed', // Tiền đã thực sự rời khỏi hệ thống (từ tài khoản của platform)
-                amount: -parseFloat(payoutRequest.amount), // Âm đối với sổ sách của platform
+                payout_request_id: payoutRequest.id,
+                type: 'payout_completed', // Giữ nguyên type để dễ lọc, status của request mới là quan trọng
+                amount: -amountToWithdraw,
                 status: 'completed',
-                notes: `Payout request #${payoutRequest.id} completed. External TX ID: ${transaction_id_payout || 'N/A'}. Admin notes: ${admin_notes || ''}`,
-                // payout_request_id: payoutRequest.id // Nếu có
+                notes: `Admin approved payout request #${payoutRequest.id}. Notes: ${admin_notes || ''}`
             }, { transaction: dbTransaction });
         }
-        // Các trạng thái 'approved', 'processing' chỉ là bước trung gian, không tác động thêm vào ví.
-
+        
+        await payoutRequest.save({ transaction: dbTransaction });
         await dbTransaction.commit();
-
-        // TODO: Gửi thông báo cho người bán về trạng thái yêu cầu rút tiền
 
         res.json({ message: `Yêu cầu rút tiền đã được xử lý, trạng thái mới: ${new_status}.`, payoutRequest });
 

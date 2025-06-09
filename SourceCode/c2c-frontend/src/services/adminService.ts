@@ -1,7 +1,6 @@
 import api from '../api';
 
 // Định nghĩa các kiểu dữ liệu trả về từ API của admin
-// Lưu ý: Các kiểu dữ liệu này nên được định nghĩa chi tiết hơn để phù hợp với dữ liệu thực tế từ backend
 export interface AdminProduct {
     id: string;
     name: string;
@@ -26,7 +25,6 @@ export interface AdminWithdrawal {
     createdAt: string;
     status: 'pending' | 'processing' | 'completed' | 'rejected' | 'failed';
     amount: number;
-    user: { id: string; name: string; email: string };
     payout_info: string; // Đây là JSON string
     seller: { id: string; username: string; email: string };
 }
@@ -63,10 +61,10 @@ export const adminUpdateProductStatus = (productId: string, status: string, admi
 // Quản lý đơn hàng
 export const adminGetOrders = (params: any) => api.get('/orders', { params });
 
-// Quản lý rút tiền
-export const adminGetPayouts = (params: any) => api.get('/payouts', { params });
+// Quản lý rút tiền (ĐÃ SỬA)
+export const adminGetPayouts = (params: any) => api.get('/wallet-payouts', { params });
 export const adminProcessPayout = (requestId: string, new_status: string, admin_notes?: string) => 
-    api.put(`/payouts/${requestId}/process`, { new_status, admin_notes });
+    api.put(`/wallet-payouts/${requestId}/process`, { new_status, admin_notes });
 
 // Quản lý khiếu nại
 export const adminGetDisputes = (params: any) => api.get('/disputes', { params });
@@ -82,11 +80,6 @@ export const adminGetProductById = (productId: string) => {
     return api.get(`/admin/products/${productId}`);
 };
 
-/**
- * Cập nhật thông tin sản phẩm.
- * @param productId ID của sản phẩm
- * @param data Dữ liệu sản phẩm (dưới dạng FormData nếu có upload ảnh)
- */
 export const adminUpdateProduct = (productId: string, data: FormData) => {
     return api.put(`/products/${productId}`, data, {
         headers: {
@@ -99,29 +92,14 @@ export const adminDeleteProduct = (productId: string) => {
     return api.delete(`/products/${productId}`);
 };
 
-/**
- * Admin lấy chi tiết một đơn hàng.
- * Sử dụng lại API chung, vì backend đã phân quyền cho admin.
- * @param orderId ID của đơn hàng
- */
 export const adminGetOrderById = (orderId: string) => {
     return api.get(`/orders/${orderId}`);
 };
 
-/**
- * Admin cập nhật trạng thái của một đơn hàng.
- * @param orderId ID của đơn hàng
- * @param status Trạng thái mới
- */
 export const adminUpdateOrderStatus = (orderId: string, status: string) => {
     return api.put(`/orders/${orderId}/status`, { status });
 };
 
-/**
- * Admin hoàn tiền cho một mục trong đơn hàng.
- * @param itemId ID của mục đơn hàng
- * @param notes Lý do hoàn tiền
- */
 export const adminRefundOrderItem = (itemId: string, notes: string) => {
     return api.post(`/orders/items/${itemId}/refund`, { notes });
 };
