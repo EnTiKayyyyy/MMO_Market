@@ -17,4 +17,9 @@ router.get('/vnpay-ipn', webhookController.vnpayIpnHandler);
 // @access  Public
 router.get('/vnpay-return', webhookController.vnpayReturnHandler);
 
+// @route   POST /api/webhooks/nowpayments-ipn
+// @desc    Webhook để NowPayments gửi kết quả giao dịch (IPN)
+// @access  Public
+router.post('/nowpayments-ipn', webhookController.nowPaymentsIpnHandler);
+
 module.exports = router;

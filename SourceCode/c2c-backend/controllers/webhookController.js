@@ -249,3 +249,72 @@ exports.vnpayReturnHandler = async (req, res) => {
         res.redirect(`http://localhost:5173/vi/payment-status?${redirectParams.toString()}`);
     }
 };
+
+/**
+ * @desc    Xử lý NowPayments IPN
+ * @route   POST /api/webhooks/nowpayments-ipn
+ * @access  Public
+ */
+exports.nowPaymentsIpnHandler = async (req, res) => {
+    const { id, status, payment_address, amount, currency } = req.body;
+
+    if (!id || !status || !payment_address || !amount || !currency) {
+        return res.status(400).json({ message: 'Thiếu thông tin cần thiết.' });
+    }
+
+    const dbTransaction = await sequelize.transaction();
+
+    try {
+        // 1. Tìm giao dịch nạp tiền đang chờ
+        const depositTx = await Transaction.findOne({
+            where: {
+                id,
+                type: 'deposit',
+                status: 'pending'
+            },
+            lock: dbTransaction.LOCK.UPDATE,
+            transaction: dbTransaction
+        });
+
+        // Nếu không tìm thấy giao dịch hoặc nó đã được xử lý, trả về lỗi
+        if (!depositTx) {
+            await dbTransaction.rollback();
+            return res.status(404).json({ message: 'Không tìm thấy giao dịch đang chờ xử lý tương ứng.' });
+        }
+
+        // 2. Cập nhật trạng thái giao dịch nạp tiền
+        depositTx.status = status === 'finished' ? 'completed' : 'failed';
+        depositTx.notes = `Nạp tiền ${status === 'finished' ? 'thành công' : 'thất bại'} qua NowPayments.`;
+        await depositTx.save({ transaction: dbTransaction });
+
+        // 3. Cộng tiền vào ví của người dùng nếu giao dịch thành công
+        if (depositTx.status === 'completed') {
+            const userWallet = await Wallet.findOne({
+                where: { user_id: depositTx.user_id },
+                lock: dbTransaction.LOCK.UPDATE,
+                transaction: dbTransaction
+            });
+
+            if (userWallet) {
+                await userWallet.increment('balance', { by: amount, transaction: dbTransaction });
+            } else {
+                // Nếu người dùng chưa có ví, tạo mới và cộng tiền
+                await Wallet.create({
+                    user_id: depositTx.user_id,
+                    balance: amount
+                }, { transaction: dbTransaction });
+            }
+        }
+
+        // Commit tất cả thay đổi nếu mọi thứ thành công
+        await dbTransaction.commit();
+
+        console.log(`Giao dịch nạp tiền #${id} đã được xác nhận và cộng tiền thành công.`);
+        res.status(200).json({ message: 'Xác nhận và cộng tiền thành công.' });
+
+    } catch (error) {
+        await dbTransaction.rollback();
+        console.error(`Lỗi khi xác nhận giao dịch #${id}:`, error);
+        res.status(500).json({ message: 'Lỗi hệ thống khi xử lý xác nhận.' });
+    }
+}

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getMyWallet, createDepositRequest } from '../services/walletService';
+import { getMyWallet, getMyTransactions, createDepositRequest } from '../services/walletService'; 
 import type { TransactionData } from '../services/walletService';
 
 interface WalletState {
@@ -13,7 +13,7 @@ interface WalletState {
 
 export const useWalletStore = create<WalletState>((set) => ({
   balance: 0,
-  transactions: [], // Sẽ cập nhật khi có API
+  transactions: [],
   isLoading: true,
   error: null,
 
@@ -23,12 +23,18 @@ export const useWalletStore = create<WalletState>((set) => ({
   fetchWalletData: async () => {
     set({ isLoading: true, error: null });
     try {
-      const walletData = await getMyWallet();
+      // Gọi cả hai API cùng lúc để tăng tốc độ
+      const [walletData, transactionsData] = await Promise.all([
+          getMyWallet(),
+          getMyTransactions() // Gọi hàm mới để lấy lịch sử giao dịch
+      ]);
+
       set({
         balance: parseFloat(walletData.balance), // Chuyển đổi string từ API thành number
+        transactions: transactionsData, // Cập nhật state với dữ liệu giao dịch
         isLoading: false,
       });
-      // Khi có API lấy lịch sử giao dịch, bạn sẽ gọi nó ở đây
+
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || "Không thể tải dữ liệu ví.";
       set({ error: errorMessage, isLoading: false });
@@ -37,7 +43,6 @@ export const useWalletStore = create<WalletState>((set) => ({
 
   /**
    * Action để tạo yêu cầu nạp tiền.
-   * Nó sẽ trả về URL thanh toán để điều hướng người dùng.
    */
   deposit: async (amount: number) => {
     try {

@@ -1,5 +1,7 @@
 const { Wallet, Transaction, sequelize } = require('../models');
 const { validationResult } = require('express-validator');
+const axios = require('axios');
+
 require('dotenv').config();
 const querystring = require('qs');
 const crypto = require("crypto");
@@ -215,5 +217,84 @@ exports.createVnpayPaymentUrl = async (req, res) => {
         await dbTransaction.rollback();
         console.error('Lỗi khi tạo URL thanh toán VNPay:', error);
         res.status(500).json({ message: 'Lỗi server khi tạo yêu cầu nạp tiền.' });
+    }
+};
+
+exports.createNowPaymentsDeposit = async (req, res) => {
+    // `amount` nhận được giờ là VND
+    const { amount: amountVND, currency } = req.body;
+    const userId = req.user.id;
+    let dbTransaction;
+
+    try {
+        dbTransaction = await sequelize.transaction();
+
+        const apiKey = process.env.NOWPAYMENTS_API_KEY;
+        const apiUrl = process.env.API_BASE_URL;
+        const vndToUsdRate = parseFloat(process.env.VND_TO_USD_RATE || 25000);
+
+        if (!apiKey || !apiUrl) {
+            throw new Error('Lỗi cấu hình hệ thống.');
+        }
+        
+        // Lưu số tiền VND vào database
+        const depositTransaction = await Transaction.create({
+            user_id: userId,
+            type: 'deposit',
+            amount: parseFloat(amountVND), // Lưu giá trị VND
+            status: 'pending',
+            // SỬA ĐỔI: Xóa bỏ formatCurrency, dùng giá trị số trực tiếp
+            notes: `Khoi tao yeu cau nap ${amountVND} VND qua NowPayments (${currency.toUpperCase()}).`,
+        }, { transaction: dbTransaction });
+
+        // Quy đổi VND sang USD để gửi cho NowPayments
+        const amountUSD = parseFloat(amountVND) / vndToUsdRate;
+
+        const nowPaymentsData = {
+            price_amount: amountUSD, // Gửi giá trị USD
+            price_currency: 'usd',
+            pay_currency: currency,
+            order_id: depositTransaction.id.toString(),
+            // SỬA ĐỔI: Xóa bỏ formatCurrency
+            order_description: `Nap tien ${amountVND} VND cho user #${userId}`,
+            ipn_callback_url: `${apiUrl}/api/webhooks/nowpayments-ipn`,
+        };
+
+        const response = await axios.post('https://api.nowpayments.io/v1/payment', nowPaymentsData, {
+            headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.data || !response.data.payment_id) {
+            throw new Error('Không nhận được thông tin thanh toán hợp lệ từ NowPayments.');
+        }
+
+        await dbTransaction.commit();
+        
+        res.status(201).json(response.data);
+
+    } catch (error) {
+        if (dbTransaction) await dbTransaction.rollback();
+        console.error('Lỗi chi tiết khi tạo yêu cầu NowPayments:', error.response ? error.response.data : error.message);
+        res.status(500).json({ message: error.message || 'Lỗi server khi tạo yêu cầu nạp tiền.' });
+    }
+};
+
+
+/**
+ * @desc    Lấy lịch sử giao dịch của người dùng hiện tại
+ * @route   GET /api/wallet/transactions
+ * @access  Private
+ */
+exports.getMyTransactions = async (req, res) => {
+    try {
+        const transactions = await Transaction.findAll({
+            where: { user_id: req.user.id },
+            order: [['createdAt', 'DESC']],
+            limit: 50 // Giới hạn 50 giao dịch gần nhất
+        });
+        res.json(transactions);
+    } catch (error) {
+        console.error('Lỗi khi lấy lịch sử giao dịch:', error);
+        res.status(500).json({ message: 'Lỗi server.' });
     }
 };

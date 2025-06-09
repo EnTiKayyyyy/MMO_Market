@@ -19,6 +19,14 @@ export interface TransactionData {
     createdAt: string;
 }
 
+export interface NowPaymentsResponse {
+  payment_id: string;
+  pay_address: string;
+  pay_amount: number;
+  pay_currency: string;
+  expiration_estimate_date: string;
+  // Thêm các trường khác nếu bạn cần hiển thị
+}
 /**
  * Lấy thông tin ví của người dùng đang đăng nhập.
  */
@@ -44,6 +52,26 @@ export const createDepositRequest = async (amount: number): Promise<{ paymentUrl
  */
 export const createVnpayDepositUrl = async (amount: number): Promise<{ paymentUrl: string }> => {
     const response = await api.post('/wallet/deposit/create-vnpay-url', { amount });
+    return response.data;
+};
+
+/**
+ * Creates a NowPayments deposit request.
+ * @param amount - The amount to deposit (in base currency, e.g., USD).
+ * @param currency - The cryptocurrency to pay with (e.g., 'btc', 'eth').
+ */
+export const createNowPaymentsDepositUrl = async (amount: number, currency: string): Promise<NowPaymentsResponse> => {
+    const response = await api.post('/wallet/deposit/create-nowpayments', { amount, currency });
+    return response.data;
+};
+
+
+/**
+ * Lấy lịch sử giao dịch của người dùng đang đăng nhập.
+ */
+export const getMyTransactions = async (): Promise<TransactionData[]> => {
+    // API endpoint này cần được tạo ở backend
+    const response = await api.get('/wallet/transactions');
     return response.data;
 };
 

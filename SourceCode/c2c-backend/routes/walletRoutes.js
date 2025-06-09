@@ -21,4 +21,19 @@ router.post(
     walletController.createVnpayPaymentUrl
 );
 
+router.post(
+    '/deposit/create-nowpayments',
+    protect,
+    [
+        body('amount').isNumeric().withMessage('Số tiền phải là số'),
+        body('currency').notEmpty().withMessage('Vui lòng chọn loại tiền điện tử.')
+    ],
+    walletController.createNowPaymentsDeposit
+);
+// @route   GET /api/wallet/transactions
+// @desc    Lấy lịch sử giao dịch của người dùng hiện tại
+// @access  Private
+router.get('/transactions', protect, walletController.getMyTransactions);
+
+
 module.exports = router;
