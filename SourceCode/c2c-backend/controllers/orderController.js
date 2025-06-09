@@ -92,25 +92,27 @@ exports.updateOrderStatusAdmin = async (req, res) => {
 exports.createOrder = async (req, res) => {
     const { items } = req.body; // items: [{ product_id, quantity (mặc định là 1 cho digital) }]
     const buyer_id = req.user.id;
-    let transaction; // Biến cho DB transaction
+    let dbTransaction; // Biến cho DB transaction
 
     try {
-        transaction = await sequelize.transaction();
+        dbTransaction = await sequelize.transaction();
         let totalAmount = 0;
         const orderItemsData = [];
+        const productStatusUpdates = [];
 
+        // Bước 1: Kiểm tra thông tin sản phẩm và tính tổng tiền
         for (const item of items) {
-            const product = await Product.findByPk(item.product_id, { transaction });
+            const product = await Product.findByPk(item.product_id, { transaction: dbTransaction, lock: true });
             if (!product) {
-                await transaction.rollback();
+                await dbTransaction.rollback();
                 return res.status(404).json({ message: `Sản phẩm với ID ${item.product_id} không tìm thấy.` });
             }
             if (product.status !== 'available') {
-                await transaction.rollback();
+                await dbTransaction.rollback();
                 return res.status(400).json({ message: `Sản phẩm "${product.name}" không còn hoặc đang chờ duyệt.` });
             }
             if (product.seller_id === buyer_id) {
-                await transaction.rollback();
+                await dbTransaction.rollback();
                 return res.status(400).json({ message: `Bạn không thể tự mua sản phẩm của chính mình.` });
             }
 
@@ -119,38 +121,63 @@ exports.createOrder = async (req, res) => {
                 product_id: product.id,
                 seller_id: product.seller_id,
                 price: product.price,
-                // commission_fee sẽ tính sau khi thanh toán
+                status: 'delivered' 
             });
 
-            // Đánh dấu sản phẩm là đã bán (hoặc "reserved" nếu có cơ chế đó)
-            product.status = 'sold'; // Hoặc một trạng thái tạm thời khác
-            await product.save({ transaction });
+            // Chuẩn bị để cập nhật trạng thái sản phẩm
+            product.status = 'sold';
+            productStatusUpdates.push(product.save({ transaction: dbTransaction }));
         }
 
         if (orderItemsData.length === 0) {
-            await transaction.rollback();
-            return res.status(400).json({ message: "Đơn hàng không có sản phẩm nào." });
+            await dbTransaction.rollback();
+            return res.status(400).json({ message: "Đơn hàng không có sản phẩm hợp lệ." });
         }
-
+        
+        // Bước 2: Kiểm tra số dư ví của người mua
+        const buyerWallet = await Wallet.findOne({ where: { user_id: buyer_id }, transaction: dbTransaction, lock: true });
+        if (!buyerWallet || parseFloat(buyerWallet.balance) < totalAmount) {
+            await dbTransaction.rollback();
+            return res.status(400).json({ message: "Số dư ví không đủ để thực hiện thanh toán." });
+        }
+        
+        // Bước 3: Tạo đơn hàng
         const newOrder = await Order.create({
             buyer_id,
             total_amount: totalAmount,
             status: 'completed'
-        }, { transaction });
+        }, { transaction: dbTransaction });
 
+        // Bước 4: Trừ tiền từ ví của người dùng (sau khi đã tạo order)
+        buyerWallet.balance = parseFloat(buyerWallet.balance) - totalAmount;
+        await buyerWallet.save({ transaction: dbTransaction });
+        
+        // Bước 5: Thêm giao dịch vào bảng Transactions (sau khi đã tạo order)
+        await Transaction.create({
+            user_id: buyer_id,
+            type: 'payment',
+            amount: -totalAmount, // Ghi nhận là một khoản chi (số âm)
+            status: 'completed',
+            notes: `Thanh toán cho đơn hàng #${newOrder.id}`
+        }, { transaction: dbTransaction });
+
+        // Bước 6: Tạo các mục chi tiết đơn hàng (OrderItems)
         for (const itemData of orderItemsData) {
             await OrderItem.create({
                 ...itemData,
                 order_id: newOrder.id,
-            }, { transaction });
+            }, { transaction: dbTransaction });
         }
+        
+        // Bước 7: Lưu các thay đổi trạng thái của sản phẩm
+        await Promise.all(productStatusUpdates);
 
-        await transaction.commit();
-        res.status(201).json({ message: 'Đơn hàng đã được tạo, vui lòng tiến hành thanh toán.', order: newOrder });
-
+        // Bước 8: Hoàn tất toàn bộ transaction
+        await dbTransaction.commit();
+        res.status(201).json({ message: 'Đơn hàng đã được tạo và thanh toán thành công.', order: newOrder });
 
     } catch (error) {
-        if (transaction) await transaction.rollback();
+        if (dbTransaction) await dbTransaction.rollback();
         console.error('Lỗi tạo đơn hàng:', error);
         res.status(500).json({ message: 'Lỗi server khi tạo đơn hàng.', error: error.message });
     }
