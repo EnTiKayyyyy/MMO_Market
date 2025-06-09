@@ -135,7 +135,7 @@ exports.createOrder = async (req, res) => {
         const newOrder = await Order.create({
             buyer_id,
             total_amount: totalAmount,
-            status: 'pending' // Chờ thanh toán
+            status: 'completed'
         }, { transaction });
 
         for (const itemData of orderItemsData) {
@@ -148,26 +148,6 @@ exports.createOrder = async (req, res) => {
         await transaction.commit();
         res.status(201).json({ message: 'Đơn hàng đã được tạo, vui lòng tiến hành thanh toán.', order: newOrder });
 
-        await createNotification({
-            recipientId: newOrder.buyer_id, // Gửi cho người mua
-            type: 'new_order_buyer',
-            title: 'Đơn hàng mới đã được tạo',
-            message: `Đơn hàng #${newOrder.id} của bạn đã được tạo thành công và đang chờ thanh toán.`,
-            link: `/orders/${newOrder.id}`,
-            relatedEntityType: 'order',
-            relatedEntityId: newOrder.id
-        });
-        for (const itemData of orderItemsData) { // orderItemsData từ logic tạo đơn
-        await createNotification({
-            recipientId: itemData.seller_id,
-            type: 'new_order_seller',
-            title: 'Bạn có đơn hàng mới!',
-            message: `Khách hàng vừa đặt sản phẩm (ID: ${itemData.product_id}) trong đơn hàng #${newOrder.id}.`,
-            link: `/seller/orders/${newOrder.id}`, // Hoặc link chi tiết item cho seller
-            relatedEntityType: 'order',
-            relatedEntityId: newOrder.id
-        });
-}
 
     } catch (error) {
         if (transaction) await transaction.rollback();
@@ -271,111 +251,6 @@ exports.markItemAsDelivered = async (req, res) => {
         res.status(500).json({ message: 'Lỗi server.', error: error.message });
     }
 };
-
-// // @desc    Người mua xác nhận đã nhận hàng -> Kích hoạt Escrow Release
-// exports.confirmItemReceipt = async (req, res) => {
-//     const { itemId } = req.params;
-//     const buyerId = req.user.id;
-//     let dbTransaction;
-
-//     try {
-//         dbTransaction = await sequelize.transaction();
-//         const orderItem = await OrderItem.findByPk(itemId, {
-//             include: [
-//                 { model: Order, as: 'order', where: { buyer_id: buyerId } }, // Đảm bảo người mua đúng
-//                 { model: Product, as: 'product' } // Để lấy product_data
-//             ],
-//             transaction: dbTransaction
-//         });
-
-//         if (!orderItem) {
-//             await dbTransaction.rollback();
-//             return res.status(404).json({ message: 'Mục đơn hàng không tìm thấy hoặc bạn không phải người mua.' });
-//         }
-//         if (orderItem.status !== 'delivered') {
-//             await dbTransaction.rollback();
-//             return res.status(400).json({ message: `Không thể xác nhận mục chưa được giao (trạng thái: ${orderItem.status}).` });
-//         }
-
-//         orderItem.status = 'confirmed';
-//         await orderItem.save({ transaction: dbTransaction });
-
-//         // Tính toán tiền cho người bán và phí sàn
-//         const itemPrice = parseFloat(orderItem.price);
-//         const commission = itemPrice * COMMISSION_RATE;
-//         const sellerEarnings = itemPrice - commission;
-//         orderItem.commission_fee = commission; // Lưu lại phí đã thu
-//         await orderItem.save({ transaction: dbTransaction });
-
-
-//         // Cộng tiền vào ví người bán
-//         const sellerWallet = await SellerWallet.findOne({ where: { seller_id: orderItem.seller_id }, transaction: dbTransaction });
-//         if (sellerWallet) {
-//             sellerWallet.balance = parseFloat(sellerWallet.balance) + sellerEarnings;
-//             await sellerWallet.save({ transaction: dbTransaction });
-//         } else {
-//             // Trường hợp hiếm: seller chưa có ví -> tạo mới hoặc báo lỗi
-//             await SellerWallet.create({ seller_id: orderItem.seller_id, balance: sellerEarnings }, { transaction: dbTransaction });
-//         }
-
-//         // Ghi nhận giao dịch cho người bán
-//         await Transaction.create({
-//             user_id: orderItem.seller_id,
-//             order_item_id: orderItem.id,
-//             type: 'payout', // Hoặc 'sale_credit' tùy theo cách bạn định nghĩa
-//             amount: sellerEarnings,
-//             status: 'completed'
-//         }, { transaction: dbTransaction });
-
-//         // Ghi nhận giao dịch phí sàn (cho admin/platform)
-//         await Transaction.create({
-//             user_id: 1, // ID của Admin hoặc một tài khoản đại diện cho platform
-//             order_item_id: orderItem.id,
-//             type: 'commission',
-//             amount: commission,
-//             status: 'completed'
-//         }, { transaction: dbTransaction });
-
-
-//         // Kiểm tra xem tất cả items trong Order đã confirmed chưa để cập nhật Order status
-//         const order = await Order.findByPk(orderItem.order_id, {
-//             include: [{ model: OrderItem, as: 'items' }],
-//             transaction: dbTransaction
-//         });
-
-//         const allItemsConfirmed = order.items.every(item => item.status === 'confirmed');
-//         if (allItemsConfirmed) {
-//             order.status = 'completed';
-//             await order.save({ transaction: dbTransaction });
-//         } else if (order.status !== 'partially_completed' && order.items.some(item => item.status === 'confirmed')) {
-//             order.status = 'partially_completed';
-//             await order.save({ transaction: dbTransaction });
-//         }
-
-
-//         await dbTransaction.commit();
-//         res.json({
-//             message: 'Xác nhận nhận hàng thành công. Tiền đã được chuyển cho người bán.',
-//             orderItem,
-//             // product_data sẽ được trả về qua getOrderById nếu đã confirmed
-//         });
-
-//         await createNotification({
-//             recipientId: orderItem.seller_id,
-//             type: 'item_confirmed_seller',
-//             title: 'Mặt hàng đã được xác nhận',
-//             message: `Người mua đã xác nhận nhận hàng cho mục #${orderItem.id} (sản phẩm: ${orderItem.product.name}). Tiền đã được cộng vào ví của bạn.`,
-//             link: `/seller/orders/${orderItem.order_id}`, // Link đến đơn hàng
-//             relatedEntityType: 'order_item',
-//             relatedEntityId: orderItem.id
-//         });
-
-//     } catch (error) {
-//         if (dbTransaction) await dbTransaction.rollback();
-//         console.error('Lỗi xác nhận nhận hàng:', error);
-//         res.status(500).json({ message: 'Lỗi server.', error: error.message });
-//     }
-// };
 
 // @desc    Lấy đơn hàng của tôi (Người mua)
 exports.getMyOrders = async (req, res) => {

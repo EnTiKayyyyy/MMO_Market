@@ -1,12 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Search, ChevronRight, Tags, Shield, BarChart, Clock } from 'lucide-react';
-
-// Import các service để gọi API
-import { getPopularProducts, getNewProducts } from '../services/productService';
+import { getPopularProducts, getNewProducts, getRecommendedProducts } from '../services/productService';
 import { getAllCategories } from '../services/categoryService';
-
-// Import các component và type cần thiết
+import { useAuthStore } from '../stores/authStore';
 import ProductCard from '../components/product/ProductCard';
 import { Product } from '../types/product';
 import type { Category } from '../services/categoryService';
@@ -19,21 +16,33 @@ const Home = () => {
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
   
-  // useEffect để tải tất cả dữ liệu cần thiết cho trang chủ khi component được mount
+  const { isAuthenticated } = useAuthStore();
+  const [recommendedProducts, setRecommendedProducts] = useState<Product[]>([]);
+
   useEffect(() => {
     const fetchInitialData = async () => {
       setIsLoading(true);
       try {
-        // Gọi song song các API để tăng tốc độ tải trang
-        const [popular, newProd, cats] = await Promise.all([
+        const apiCalls = [
             getPopularProducts(),
             getNewProducts(),
             getAllCategories()
-        ]);
+        ];
+        
+        if (isAuthenticated) {
+            apiCalls.push(getRecommendedProducts());
+        }
+
+        const [popular, newProd, cats, recommended] = await Promise.all(apiCalls);
         
         setPopularProducts(popular);
         setNewProducts(newProd);
         setCategories(cats);
+        
+        if (recommended) {
+            setRecommendedProducts(recommended);
+        }
+
       } catch (error) {
         console.error('Lỗi khi tải dữ liệu trang chủ:', error);
       } finally {
@@ -42,7 +51,7 @@ const Home = () => {
     };
     
     fetchInitialData();
-  }, []);
+  }, [isAuthenticated]);
   
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,7 +60,6 @@ const Home = () => {
     }
   };
   
-  // Component skeleton để hiển thị khi đang tải dữ liệu
   const ProductSkeleton = () => (
     <div className="bg-white rounded-lg shadow-custom p-4 animate-pulse">
         <div className="w-full h-40 bg-gray-200 rounded-md mb-4"></div>
@@ -100,6 +108,21 @@ const Home = () => {
             <div className="text-center p-4 text-gray-500">Không có danh mục nào để hiển thị.</div>
         )}
       </section>
+      
+      {/* Recommended Products Section */}
+      {isAuthenticated && recommendedProducts.length > 0 && (
+          <section className="mb-16">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold">Gợi ý cho bạn</h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {isLoading 
+                    ? [...Array(4)].map((_, i) => <ProductSkeleton key={i} />) 
+                    : recommendedProducts.map(product => <ProductCard key={product.id} product={product} />)
+                }
+            </div>
+          </section>
+      )}
 
       {/* New Products */}
       <section className="mb-16">

@@ -16,6 +16,10 @@ router.post(
     productController.createProduct
 );
 
+// @route   GET /api/products/recommendations
+// @desc    Lấy sản phẩm gợi ý cho người dùng đã đăng nhập
+// @access  Private
+router.get('/recommendations', protect, productController.getRecommendedProducts);
 
 // @route   GET /api/products
 // @desc    Lấy tất cả sản phẩm (có phân trang, lọc, sắp xếp)

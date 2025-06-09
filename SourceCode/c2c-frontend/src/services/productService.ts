@@ -30,6 +30,20 @@ const mapProductFromApi = (apiProduct: any): Product => {
   };
 };
 
+export const getRecommendedProducts = async (): Promise<Product[]> => {
+    try {
+        const response = await api.get('/products/recommendations');
+        // Dữ liệu trả về từ backend có thể chưa đúng định dạng của frontend
+        // nên chúng ta cần map lại
+        return response.data.map(mapProductFromApi);
+    } catch (error) {
+        // Nếu người dùng chưa đăng nhập, API sẽ trả về lỗi 401,
+        // chúng ta sẽ bắt lỗi và trả về mảng rỗng.
+        console.log("Không thể lấy sản phẩm gợi ý, có thể do người dùng chưa đăng nhập.");
+        return [];
+    }
+};
+
 export const getProducts = async (
   filter: ProductFilter
 ): Promise<{ products: Product[]; total: number }> => {

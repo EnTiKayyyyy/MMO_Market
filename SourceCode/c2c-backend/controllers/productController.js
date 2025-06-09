@@ -1,4 +1,4 @@
-const { Product, User, Category } = require('../models'); // Lấy từ models/index.js
+const { Product, User, Category, Order, OrderItem, sequelize } = require('../models');
 const { Op } = require('sequelize'); // Để dùng các toán tử của Sequelize
 const fs = require('fs'); // THÊM DÒNG NÀY
 const path = require('path'); // THÊM DÒNG NÀY
@@ -250,5 +250,68 @@ exports.deleteProduct = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Lỗi server khi xóa sản phẩm.', error: error.message });
+    }
+};
+
+// @desc    Lấy sản phẩm gợi ý dựa trên lịch sử mua hàng
+exports.getRecommendedProducts = async (req, res) => {
+    const BATCH_SIZE = 4; // Số lượng sản phẩm gợi ý
+    try {
+        const buyerId = req.user.id;
+
+        // 1. Lấy danh sách các sản phẩm người dùng đã mua
+        const purchasedItems = await OrderItem.findAll({
+            attributes: ['product_id'],
+            include: [{
+                model: Order,
+                as: 'order',
+                attributes: [],
+                where: { buyer_id: buyerId }
+            }],
+            raw: true
+        });
+        const purchasedProductIds = purchasedItems.map(item => item.product_id);
+
+        if (purchasedProductIds.length === 0) {
+            // Nếu chưa mua gì, trả về mảng rỗng hoặc có thể gợi ý sản phẩm phổ biến
+            return res.json([]);
+        }
+
+        // 2. Lấy danh sách các danh mục mà người dùng đã mua
+        const purchasedCategories = await Product.findAll({
+            attributes: [
+                // Dùng DISTINCT để không lấy trùng lặp category_id
+                [sequelize.fn('DISTINCT', sequelize.col('category_id')), 'category_id']
+            ],
+            where: {
+                id: { [Op.in]: purchasedProductIds }
+            },
+            raw: true
+        });
+        const purchasedCategoryIds = purchasedCategories.map(cat => cat.category_id);
+
+        // 3. Tìm các sản phẩm tương tự
+        const recommendedProducts = await Product.findAll({
+            where: {
+                category_id: { [Op.in]: purchasedCategoryIds }, // Trong các danh mục đã mua
+                id: { [Op.notIn]: purchasedProductIds },       // Loại trừ các sản phẩm đã mua
+                status: 'available'                             // Chỉ lấy sản phẩm đang bán
+            },
+            limit: BATCH_SIZE,
+            order: [
+                sequelize.fn('RAND') // Lấy ngẫu nhiên
+            ],
+            include: [ // Lấy thêm thông tin cần thiết để hiển thị
+                { model: User, as: 'seller', attributes: ['id', 'username'] },
+                { model: Category, as: 'category', attributes: ['id', 'name'] }
+            ],
+            attributes: { exclude: ['product_data'] } // Không lộ data nhạy cảm
+        });
+
+        res.json(recommendedProducts);
+
+    } catch (error) {
+        console.error("Lỗi khi lấy sản phẩm gợi ý:", error);
+        res.status(500).json({ message: "Lỗi server" });
     }
 };
